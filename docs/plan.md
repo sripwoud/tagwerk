@@ -1,6 +1,6 @@
 # tagwerk — implementation plan
 
-_Written 2026-09-09 after a requirements grill in a `~` session; grilled again the same day with `/grill-with-docs` against `docs/research/2026-09-09-solution-space.md`, which produced `CONTEXT.md` and `docs/adr/`. Status: sections A to E approved, nothing built. Next: `/to-spec`, then `/to-tickets`. Decisions below are final unless you reopen them; the "Facts" section was verified on lechuck on 2026-09-09._
+_Written 2026-09-09 after a requirements grill in a `~` session; grilled again the same day with `/grill-with-docs` against `docs/research/2026-09-09-solution-space.md`, which produced `CONTEXT.md` and `docs/adr/`. Status: sections A to E approved, nothing built. Bootstrap artifact: input for `/to-spec` and `/to-tickets`; delete this file once the tickets exist. Decisions below are final unless you reopen them; the "Facts" section was verified on lechuck on 2026-09-09._
 
 ## 1. Problem
 

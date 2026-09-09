@@ -11,3 +11,7 @@ Default five-role vocabulary; each label string equals its role name. See `docs/
 ### Domain docs
 
 Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Docs layout
+
+Plans, specs and research live under `docs/`. Agent-facing operational reference lives under `docs/agents/`. The root holds `AGENTS.md`, `CONTEXT.md` and code.
