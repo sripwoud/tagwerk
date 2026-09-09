@@ -64,7 +64,7 @@ wheels = [
 ]
 
 [[package]]
-name = "worked"
+name = "tagwerk"
 version = "0.1.0"
 source = { virtual = "." }
 

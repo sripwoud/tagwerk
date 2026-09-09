@@ -1,5 +1,5 @@
 [project]
-name = "worked"
+name = "tagwerk"
 version = "0.1.0"
 description = "Passive work-hours tracker for Hyprland, attributed per repo"
 requires-python = ">=3.13"
