@@ -1,0 +1,20 @@
+[settings]
+lockfile = true
+
+[tasks.check]
+alias = "c"
+description = "Run all linters and formatters in check mode"
+run = "hk check --all"
+
+[tasks.fix]
+alias = "f"
+description = "Run all linters and formatters in fix mode"
+run = "hk fix --all"
+
+[tools]
+"aqua:astral-sh/uv" = "0.12.10"
+"aqua:dprint/dprint" = "0.57.4"
+"github:convco/convco" = "0.7.2"
+hk = "1.58.1"
+python = "3.14.7"
+ruff = "0.16.6"
