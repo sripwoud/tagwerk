@@ -1,0 +1,28 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "group:allNonMajor", "helpers:pinGitHubActionDigests"],
+  "semanticCommits": "enabled",
+  "lockFileMaintenance": { "enabled": true },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "hk.pkl amends the hk Pkl schema at a pinned release; the version appears twice per line so the whole package URL is rewritten",
+      "managerFilePatterns": ["/^hk\\.pkl$/"],
+      "matchStrings": [
+        "package://github\\.com/jdx/hk/releases/download/v(?<currentValue>\\d+\\.\\d+\\.\\d+)/hk@\\d+\\.\\d+\\.\\d+#"
+      ],
+      "depNameTemplate": "hk",
+      "packageNameTemplate": "jdx/hk",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$",
+      "autoReplaceStringTemplate": "package://github.com/jdx/hk/releases/download/v{{{newValue}}}/hk@{{{newValue}}}#"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "The hk binary (.config/mise.toml) and the hk Pkl schema (hk.pkl) must move together, including on major bumps that group:allNonMajor splits",
+      "matchDepNames": ["hk"],
+      "groupName": "hk"
+    }
+  ]
+}
