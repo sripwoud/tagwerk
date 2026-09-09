@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues live in GitHub Issues for `sripwoud/worked` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues live in GitHub Issues for `sripwoud/tagwerk` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
