@@ -15,7 +15,9 @@ jobs:
         with:
           pkgname: tagwerk-git
           pkgbuild: contrib/aur/PKGBUILD
-          assets: contrib/aur/tagwerk-git.install
+          assets: |
+            contrib/aur/tagwerk-git.install
+            contrib/aur/.gitignore
           test: true
           commit_username: sripwoud
           commit_email: me@sripwoud.xyz
