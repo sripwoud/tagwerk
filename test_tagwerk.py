@@ -36,6 +36,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("HOME", str(tmp_path))
     for name in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "TAGWERK_CONFIG", "TAGWERK_DATA_DIR"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -44,13 +45,6 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def ledger(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("TAGWERK_CONFIG", str(SCRIPT.with_name("config.example.toml")))
     return home / ".local/share/tagwerk"
-
-
-@pytest.fixture
-def runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    runtime = tmp_path / "run"
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
-    return runtime
 
 
 @pytest.fixture
@@ -792,9 +786,7 @@ def test_import_timew_runs_timew_export_without_a_file(
     assert args.read_text() == "export\n"
 
 
-def test_beat_appends_one_line_with_src_and_cwd(
-    home: Path, ledger: Path, runtime: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_beat_appends_one_line_with_src_and_cwd(home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
     repo = f"{home}/code/work-org/assets.1"
     run(capsys, "beat", "claude", "--cwd", repo)
     [beat] = lines(ledger)
@@ -803,21 +795,21 @@ def test_beat_appends_one_line_with_src_and_cwd(
 
 
 def test_a_second_beat_within_the_throttle_appends_nothing_until_the_stamp_ages(
-    home: Path, ledger: Path, runtime: Path, capsys: pytest.CaptureFixture[str]
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repo = f"{home}/code/work-org/assets.1"
     run(capsys, "beat", "claude", "--cwd", repo)
     run(capsys, "beat", "claude", "--cwd", repo)
     assert len(lines(ledger)) == 1
-    [stamp] = (runtime / "tagwerk").glob("claude-*")
-    aged = stamp.stat().st_mtime - 61
-    os.utime(stamp, (aged, aged))
+    [marker] = (home / "run/tagwerk").glob("claude-*")
+    aged = marker.stat().st_mtime - 61
+    os.utime(marker, (aged, aged))
     run(capsys, "beat", "claude", "--cwd", repo)
     assert len(lines(ledger)) == 2
 
 
 def test_beats_from_two_sources_or_two_cwds_are_throttled_apart(
-    home: Path, ledger: Path, runtime: Path, capsys: pytest.CaptureFixture[str]
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run(capsys, "beat", "claude", "--cwd", f"{home}/code/work-org/assets")
     run(capsys, "beat", "pi", "--cwd", f"{home}/code/work-org/assets")
@@ -826,7 +818,7 @@ def test_beats_from_two_sources_or_two_cwds_are_throttled_apart(
 
 
 def test_beat_reads_the_cwd_from_a_claude_hook_payload_on_stdin(
-    home: Path, ledger: Path, runtime: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    home: Path, ledger: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repo = f"{home}/code/work-org/assets"
     payload = {"session_id": "abc", "hook_event_name": "PostToolUse", "cwd": repo, "tool_name": "Bash"}
@@ -836,27 +828,35 @@ def test_beat_reads_the_cwd_from_a_claude_hook_payload_on_stdin(
     assert beat["cwd"] == repo
 
 
-def test_beat_with_an_empty_stdin_uses_the_process_cwd(
-    home: Path, ledger: Path, runtime: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+class Terminal(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+@pytest.mark.parametrize(
+    "stdin", [io.StringIO(""), io.StringIO('{"session_id": "abc"}'), Terminal('{"cwd": "/elsewhere"}')]
+)
+def test_beat_without_a_cwd_on_a_piped_stdin_uses_the_process_cwd(
+    home: Path, ledger: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], stdin: io.StringIO
 ) -> None:
     repo = home / "code/work-org/assets"
     repo.mkdir(parents=True)
     monkeypatch.chdir(repo)
-    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+    monkeypatch.setattr("sys.stdin", stdin)
     run(capsys, "beat", "pi")
     [beat] = lines(ledger)
     assert beat["cwd"] == str(repo)
 
 
 def test_beat_outside_every_root_appends_nothing_and_exits_zero(
-    home: Path, ledger: Path, runtime: Path, capsys: pytest.CaptureFixture[str]
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run(capsys, "beat", "claude", "--cwd", f"{home}/Downloads")
     assert not ledger.exists()
 
 
 def test_beat_throttle_is_read_from_the_config(
-    home: Path, runtime: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     (home / "config.toml").write_text(
         f'data_dir = "{home}/data"\nbeat_throttle_sec = 0\n[roots]\n"{home}/code/work-org" = "work"\n'
