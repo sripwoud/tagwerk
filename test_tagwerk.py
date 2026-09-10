@@ -1,14 +1,20 @@
 import json
 import re
 import subprocess
+import time
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 import tagwerk
 
 SCRIPT = Path(tagwerk.__file__)
+T0 = datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
+M = timedelta(minutes=1)
+Event = dict[str, Any]
 
 
 @pytest.fixture
@@ -30,12 +36,43 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
+@pytest.fixture
+def ledger(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setenv("TAGWERK_CONFIG", str(SCRIPT.with_name("config.example.toml")))
+    return home / ".local/share/tagwerk"
+
+
+@pytest.fixture
+def berlin() -> Iterator[None]:
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("TZ", "Europe/Berlin")
+        time.tzset()
+        yield
+    time.tzset()
+
+
 def run(capsys: pytest.CaptureFixture[str], *argv: str) -> list[list[str]]:
     assert tagwerk.main(list(argv)) == 0
     return [line.split() for line in capsys.readouterr().out.splitlines()]
 
 
-@pytest.mark.parametrize("command", [[], ["fix"], ["today"]])
+def stamp(moment: datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def span(start: datetime, end: datetime, project: str, kind: str = "work") -> Event:
+    return {"ts": stamp(end), "ev": "span", "start": stamp(start), "end": stamp(end), "kind": kind, "project": project}
+
+
+def seed(ledger: Path, *events: Event) -> None:
+    ledger.mkdir(parents=True, exist_ok=True)
+    for event in events:
+        filed = event["start"] if event["ev"] == "span" else event["ts"]
+        with (ledger / f"{filed[:7]}.jsonl").open("a") as month:
+            month.write(json.dumps(event) + "\n")
+
+
+@pytest.mark.parametrize("command", [[], ["fix"], ["today"], ["month"]])
 def test_help_exits_zero_and_prints_usage(capsys: pytest.CaptureFixture[str], command: list[str]) -> None:
     with pytest.raises(SystemExit) as raised:
         tagwerk.main([*command, "--help"])
@@ -188,3 +225,28 @@ def test_example_config_books_into_the_expanded_home(
     run(capsys, "fix", "09:00", "10:00", "assets")
     assert run(capsys, "today") == [["assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
     assert len(list((home / ".local/share/tagwerk").glob("*.jsonl"))) == 1
+
+
+def test_month_with_an_empty_ledger_prints_zero_totals(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert run(capsys, "month", "2026-08") == [["work", "0:00"], ["total", "0:00"]]
+
+
+def test_month_without_an_argument_uses_the_current_month(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    assert run(capsys, "month") == [["assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
+
+
+def test_month_credits_a_span_filed_in_that_month(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    seed(ledger, span(T0, T0 + 90 * M, "assets"))
+    assert run(capsys, "month", "2026-08") == [["assets", "1:30"], ["work", "1:30"], ["total", "1:30"]]
+    assert run(capsys, "month", "2026-07") == [["work", "0:00"], ["total", "0:00"]]
+
+
+def test_month_reads_the_previous_file_for_a_span_crossing_into_its_first_local_minutes(
+    ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    last_of_july_utc = datetime(2026, 7, 31, 21, 30, tzinfo=UTC)
+    seed(ledger, span(last_of_july_utc, last_of_july_utc + 60 * M, "assets"))
+    assert [path.name for path in ledger.glob("*.jsonl")] == ["2026-07.jsonl"]
+    assert run(capsys, "month", "2026-08") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
+    assert run(capsys, "month", "2026-07") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]

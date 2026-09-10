@@ -67,6 +67,10 @@ def read_ledger_file(path: Path) -> list[Event]:
     return events
 
 
+def next_month(first: date) -> date:
+    return (first + timedelta(days=32)).replace(day=1)
+
+
 def read_events(config: Config, start: datetime, end: datetime) -> list[Event]:
     events: list[Event] = []
     month = (start - timedelta(days=1)).date().replace(day=1)
@@ -74,7 +78,7 @@ def read_events(config: Config, start: datetime, end: datetime) -> list[Event]:
         path = month_file(config, month)
         if path.is_file():
             events += read_ledger_file(path)
-        month = (month + timedelta(days=32)).replace(day=1)
+        month = next_month(month)
     return sorted(events, key=lambda event: event["ts"])
 
 
@@ -107,10 +111,20 @@ def local_today() -> date:
     return datetime.now(UTC).astimezone().date()
 
 
+def local_range(first: date, last: date) -> tuple[datetime, datetime]:
+    return datetime.combine(first, time.min).astimezone(UTC), datetime.combine(last, time.min).astimezone(UTC)
+
+
 def local_day(day: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(day, time.min).astimezone(UTC)
-    end = datetime.combine(day + timedelta(days=1), time.min).astimezone(UTC)
-    return start, end
+    return local_range(day, day + timedelta(days=1))
+
+
+def local_month(first: date) -> tuple[datetime, datetime]:
+    return local_range(first, next_month(first))
+
+
+def parse_month(text: str) -> date:
+    return date.fromisoformat(f"{text}-01")
 
 
 def parse_local(text: str) -> datetime:
@@ -149,8 +163,7 @@ def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: 
     append_event(config, span)
 
 
-def cmd_today(config: Config) -> None:
-    start, end = local_day(local_today())
+def report(config: Config, start: datetime, end: datetime) -> None:
     print(render_table(attribute(read_events(config, start, end), start, end)))
 
 
@@ -170,12 +183,16 @@ def main(argv: list[str]) -> int:
     )
     fix.set_defaults(kind="work")
     commands.add_parser("today", help="hours per project for the local day")
+    month = commands.add_parser("month", help="hours per project for a calendar month")
+    month.add_argument("month", nargs="?", type=parse_month, default=None, help="YYYY-MM, default the current month")
     args = parser.parse_args(argv)
     config = load_config(Path(os.environ.get("TAGWERK_CONFIG") or default_config_path()).expanduser())
     if args.command == "fix":
         cmd_fix(config, args.start, args.end, args.project, args.kind)
+    elif args.command == "month":
+        report(config, *local_month(args.month or local_today().replace(day=1)))
     else:
-        cmd_today(config)
+        report(config, *local_day(local_today()))
     return 0
 
 
