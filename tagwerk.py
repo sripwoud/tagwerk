@@ -1,5 +1,6 @@
 #!/usr/bin/python3 -I
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -35,6 +36,7 @@ class Config:
     data_dir: Path
     poll_stale: timedelta
     beat_lease: timedelta
+    beat_throttle: timedelta
     focus_lease: timedelta
     roots: list[tuple[Path, str]]
     titles: list[TitleRule]
@@ -62,6 +64,7 @@ def load_config(path: Path) -> Config:
         poll_sec=raw.get("poll_sec", 15),
         poll_stale=timedelta(minutes=raw.get("poll_stale_min", 2)),
         beat_lease=timedelta(minutes=raw.get("beat_lease_min", 10)),
+        beat_throttle=timedelta(seconds=raw.get("beat_throttle_sec", 60)),
         focus_lease=timedelta(minutes=raw.get("focus_lease_min", 1)),
         roots=roots,
         titles=[(re.compile(rule["pattern"]), rule["kind"], rule.get("project")) for rule in raw.get("title", [])],
@@ -321,6 +324,21 @@ def cmd_focus(config: Config, once: bool) -> None:
         sleep(config.poll_sec)
 
 
+def cmd_beat(config: Config, src: str, cwd: str | None) -> None:
+    if cwd is None and not sys.stdin.isatty():
+        payload = sys.stdin.read()
+        cwd = json.loads(payload).get("cwd") if payload.strip() else None
+    cwd = cwd or os.getcwd()
+    if resolve_cwd(config, cwd) is None:
+        return
+    stamp = Path(os.environ["XDG_RUNTIME_DIR"]) / "tagwerk" / f"{src}-{hashlib.sha1(cwd.encode()).hexdigest()[:12]}"
+    if stamp.exists() and datetime.now(UTC) - datetime.fromtimestamp(stamp.stat().st_mtime, UTC) < config.beat_throttle:
+        return
+    append_event(config, {"ev": "beat", "src": src, "cwd": cwd})
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.touch()
+
+
 def report(config: Config, start: datetime, end: datetime) -> None:
     print(render_table(attribute(config, read_events(config, start, end), start, end)))
 
@@ -348,10 +366,17 @@ def main(argv: list[str]) -> int:
     import_timew = commands.add_parser("import-timew", help="one-shot import of the timewarrior export as spans")
     import_timew.add_argument("--work-tag", required=True, metavar="TAG", help="tag that marks an interval as work")
     import_timew.add_argument("file", nargs="?", type=Path, help="timew export JSON; runs timew export when omitted")
+    beat = commands.add_parser("beat", help="record an agent signal for its repo, one per source and cwd per throttle")
+    beat.add_argument("src", help="the agent that fired the hook, such as claude or pi")
+    beat.add_argument(
+        "--cwd", help="the agent's working directory; default the cwd field of JSON on stdin, else the process cwd"
+    )
     args = parser.parse_args(argv)
     config = load_config(Path(os.environ.get("TAGWERK_CONFIG") or default_config_path()).expanduser())
     if args.command == "fix":
         cmd_fix(config, args.start, args.end, args.project, args.kind)
+    elif args.command == "beat":
+        cmd_beat(config, args.src, args.cwd)
     elif args.command == "month":
         report(config, *local_month(args.month or local_today().replace(day=1)))
     elif args.command == "focus":
