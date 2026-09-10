@@ -1,10 +1,8 @@
 import { spawn } from 'node:child_process';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
 
 // Symlink as ~/.pi/agent/extensions/tagwerk.ts; pi runs under Bun with its own PATH, so spawn by path.
-const TAGWERK = join(homedir(), '.local', 'bin', 'tagwerk');
+const TAGWERK = '/usr/bin/tagwerk';
 
 export default function (pi: ExtensionAPI) {
   const beat = (_event: unknown, ctx: ExtensionContext) => {

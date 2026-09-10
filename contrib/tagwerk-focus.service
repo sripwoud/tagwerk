@@ -5,7 +5,7 @@ After=graphical-session.target
 ConditionEnvironment=HYPRLAND_INSTANCE_SIGNATURE
 
 [Service]
-ExecStart=%h/.local/bin/tagwerk focus
+ExecStart=/usr/bin/tagwerk focus
 Restart=on-failure
 RestartSec=5
 

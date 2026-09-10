@@ -764,7 +764,7 @@ def test_focus_live_reads_the_real_kittys_cwd(
 def test_focus_unit_restarts_on_failure_inside_the_graphical_session() -> None:
     unit = configparser.ConfigParser(interpolation=None)
     unit.read(SCRIPT.with_name("contrib") / "tagwerk-focus.service")
-    assert unit["Service"]["ExecStart"] == "%h/.local/bin/tagwerk focus"
+    assert unit["Service"]["ExecStart"] == "/usr/bin/tagwerk focus"
     assert unit["Service"]["Restart"] == "on-failure"
     assert unit["Unit"]["PartOf"] == unit["Install"]["WantedBy"] == "graphical-session.target"
 
@@ -985,7 +985,7 @@ def test_pi_extension_spawns_tagwerk_by_absolute_path_on_four_events() -> None:
     text = (CONTRIB / "pi/tagwerk.ts").read_text()
     for event in ("session_start", "turn_start", "tool_execution_end", "agent_settled"):
         assert f"pi.on('{event}', beat)" in text
-    assert "join(homedir(), '.local', 'bin', 'tagwerk')" in text
+    assert "const TAGWERK = '/usr/bin/tagwerk';" in text
     assert "['beat', 'pi', '--cwd', ctx.cwd]" in text
 
 
