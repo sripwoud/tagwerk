@@ -8,7 +8,7 @@ import subprocess
 import sys
 import tomllib
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -138,7 +138,7 @@ def read_events(config: Config, start: datetime, end: datetime) -> list[Event]:
     return sorted(events, key=lambda event: event["ts"])
 
 
-def attribute(config: Config, events: list[Event], start: datetime, end: datetime) -> dict[Bucket, float]:
+def attribute(config: Config, events: list[Event], start: datetime, end: datetime) -> dict[date, dict[Bucket, float]]:
     spans = [
         (
             datetime.fromisoformat(event["start"]),
@@ -150,7 +150,7 @@ def attribute(config: Config, events: list[Event], start: datetime, end: datetim
     ]
     spans.reverse()
     stream = [(datetime.fromisoformat(event["ts"]), event) for event in events if event["ev"] != "span"]
-    minutes: defaultdict[Bucket, float] = defaultdict(float)
+    days: defaultdict[date, dict[Bucket, float]] = defaultdict(lambda: defaultdict(float))
     idle = False
     last_poll: datetime | None = None
     ambient: Bucket | None = None
@@ -181,15 +181,24 @@ def attribute(config: Config, events: list[Event], start: datetime, end: datetim
         booked = next((bucket for span_start, span_end, bucket in spans if span_start <= minute < span_end), None)
         if booked is not None:
             if booked.kind != "off":
-                minutes[booked] += 1.0
+                days[minute.astimezone().date()][booked] += 1.0
         elif not idle and last_poll is not None and minute - last_poll < config.poll_stale:
+            credited = days[minute.astimezone().date()]
             if leases:
                 for bucket in leases:
-                    minutes[bucket] += 1 / len(leases)
+                    credited[bucket] += 1 / len(leases)
             else:
-                minutes[ambient or OTHER] += 1.0
+                credited[ambient or OTHER] += 1.0
         minute += timedelta(minutes=1)
-    return minutes
+    return days
+
+
+def merge(parts: Iterable[dict[Bucket, float]]) -> dict[Bucket, float]:
+    total: defaultdict[Bucket, float] = defaultdict(float)
+    for part in parts:
+        for bucket, credited in part.items():
+            total[bucket] += credited
+    return total
 
 
 def local_today() -> date:
@@ -222,10 +231,17 @@ def format_hours(minutes: float) -> str:
     return f"{whole // 60}:{whole % 60:02d}"
 
 
+def ranked(minutes: dict[Bucket, float]) -> list[tuple[Bucket, float]]:
+    return sorted(minutes.items(), key=lambda row: (row[0].kind != "work", -row[1], row[0].project))
+
+
+def work_minutes(minutes: dict[Bucket, float]) -> float:
+    return sum(credited for bucket, credited in minutes.items() if bucket.kind == "work")
+
+
 def render_table(minutes: dict[Bucket, float]) -> str:
-    rows = sorted(minutes.items(), key=lambda row: (row[0].kind != "work", -row[1], row[0].project))
-    cells = [(bucket.project, format_hours(credited)) for bucket, credited in rows]
-    cells.append(("work", format_hours(sum(credited for bucket, credited in rows if bucket.kind == "work"))))
+    cells = [(bucket.project, format_hours(credited)) for bucket, credited in ranked(minutes)]
+    cells.append(("work", format_hours(work_minutes(minutes))))
     cells.append(("total", format_hours(sum(minutes.values()))))
     name_width = max(len(name) for name, _ in cells)
     hours_width = max(len(hours) for _, hours in cells)
@@ -357,8 +373,12 @@ def cmd_beat(config: Config, src: str, cwd: str | None) -> None:
     stamp.touch()
 
 
+def credited_days(config: Config, start: datetime, end: datetime) -> dict[date, dict[Bucket, float]]:
+    return attribute(config, read_events(config, start, end), start, end)
+
+
 def report(config: Config, start: datetime, end: datetime, render: Callable[[dict[Bucket, float]], str]) -> None:
-    print(render(attribute(config, read_events(config, start, end), start, end)))
+    print(render(merge(credited_days(config, start, end).values())))
 
 
 def main(argv: list[str]) -> int:
