@@ -22,6 +22,10 @@ _Avoid_: heartbeat, tick, pulse
 A `beat` event written by an agent hook (Claude Code, pi) carrying the agent's cwd.
 _Avoid_: heartbeat, ping
 
+**Throttle**:
+The shortest gap between two beats from the same agent in the same cwd. A beat inside it is dropped, which loses nothing: the lease it would renew is still running.
+_Avoid_: debounce, rate limit, cooldown
+
 **Span**:
 A manually entered or imported interval that overrides the sensors for its whole range. The latest appended span wins on overlap.
 _Avoid_: interval, entry, correction

@@ -1,4 +1,5 @@
 import configparser
+import io
 import json
 import os
 import re
@@ -14,6 +15,7 @@ import pytest
 import tagwerk
 
 SCRIPT = Path(tagwerk.__file__)
+CONTRIB = SCRIPT.parent / "contrib"
 T0 = datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
 MINUTE = timedelta(minutes=1)
 Event = dict[str, Any]
@@ -34,6 +36,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("HOME", str(tmp_path))
     for name in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "TAGWERK_CONFIG", "TAGWERK_DATA_DIR"):
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "run"))
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -95,7 +98,9 @@ def seed(ledger: Path, *events: Event) -> None:
             month.write(json.dumps(event) + "\n")
 
 
-@pytest.mark.parametrize("command", [[], ["fix"], ["today"], ["month"], ["focus"], ["import-timew"]])
+@pytest.mark.parametrize(
+    "command", [[], ["fix"], ["today"], ["month"], ["focus"], ["import-timew"], ["beat"], ["idle"], ["active"]]
+)
 def test_help_exits_zero_and_prints_usage(capsys: pytest.CaptureFixture[str], command: list[str]) -> None:
     with pytest.raises(SystemExit) as raised:
         tagwerk.main([*command, "--help"])
@@ -775,3 +780,122 @@ def test_import_timew_runs_timew_export_without_a_file(
     args = fake(fake_bin, "timew", export)
     assert run(capsys, "import-timew", "--work-tag", "acme") == [["1"]]
     assert args.read_text() == "export\n"
+
+
+def test_beat_appends_one_line_with_src_and_cwd(home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    repo = f"{home}/code/work-org/assets.1"
+    run(capsys, "beat", "claude", "--cwd", repo)
+    [beat] = ledger_lines(ledger)
+    assert {key: beat[key] for key in ("ev", "src", "cwd")} == {"ev": "beat", "src": "claude", "cwd": repo}
+    assert beat["ts"].endswith("Z")
+
+
+def test_a_second_beat_within_the_throttle_appends_nothing_until_the_stamp_ages(
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = f"{home}/code/work-org/assets.1"
+    run(capsys, "beat", "claude", "--cwd", repo)
+    run(capsys, "beat", "claude", "--cwd", repo)
+    assert len(ledger_lines(ledger)) == 1
+    [marker] = (home / "run/tagwerk").glob("claude-*")
+    aged = marker.stat().st_mtime - 61
+    os.utime(marker, (aged, aged))
+    run(capsys, "beat", "claude", "--cwd", repo)
+    assert len(ledger_lines(ledger)) == 2
+
+
+def test_beats_from_two_sources_or_two_cwds_are_throttled_apart(
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run(capsys, "beat", "claude", "--cwd", f"{home}/code/work-org/assets")
+    run(capsys, "beat", "pi", "--cwd", f"{home}/code/work-org/assets")
+    run(capsys, "beat", "claude", "--cwd", f"{home}/code/work-org/checkout")
+    assert len(ledger_lines(ledger)) == 3
+
+
+def test_beat_reads_the_cwd_from_a_claude_hook_payload_on_stdin(
+    home: Path, ledger: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = f"{home}/code/work-org/assets"
+    payload = {"session_id": "abc", "hook_event_name": "PostToolUse", "cwd": repo, "tool_name": "Bash"}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    run(capsys, "beat", "claude")
+    [beat] = ledger_lines(ledger)
+    assert beat["cwd"] == repo
+
+
+class Terminal(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+@pytest.mark.parametrize(
+    "stdin", [io.StringIO(""), io.StringIO('{"session_id": "abc"}'), Terminal('{"cwd": "/elsewhere"}')]
+)
+def test_beat_without_a_cwd_on_a_piped_stdin_uses_the_process_cwd(
+    home: Path, ledger: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], stdin: io.StringIO
+) -> None:
+    repo = home / "code/work-org/assets"
+    repo.mkdir(parents=True)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr("sys.stdin", stdin)
+    run(capsys, "beat", "pi")
+    [beat] = ledger_lines(ledger)
+    assert beat["cwd"] == str(repo)
+
+
+def test_beat_outside_every_root_appends_nothing_and_exits_zero(
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run(capsys, "beat", "claude", "--cwd", f"{home}/Downloads")
+    assert not ledger.exists()
+
+
+def test_beat_throttle_is_read_from_the_config(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (home / "config.toml").write_text(
+        f'data_dir = "{home}/data"\nbeat_throttle_sec = 0\n[roots]\n"{home}/code/work-org" = "work"\n'
+    )
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
+    run(capsys, "beat", "claude", "--cwd", f"{home}/code/work-org/assets")
+    run(capsys, "beat", "claude", "--cwd", f"{home}/code/work-org/assets")
+    assert len(ledger_lines(home / "data")) == 2
+
+
+@pytest.mark.parametrize("ev", ["idle", "active"])
+def test_idle_and_active_each_append_one_bare_mark(ledger: Path, capsys: pytest.CaptureFixture[str], ev: str) -> None:
+    run(capsys, ev)
+    [event] = ledger_lines(ledger)
+    assert event["ev"] == ev
+    assert set(event) == {"ts", "ev"}
+
+
+def test_hypridle_config_marks_sleep_and_one_150s_listener_without_locking() -> None:
+    text = (CONTRIB / "hypridle.conf").read_text()
+    assert text.count("listener {") == 1
+    assert "timeout = 150" in text
+    assert "before_sleep_cmd = tagwerk idle" in text
+    assert "after_sleep_cmd = tagwerk active" in text
+    assert "on-timeout = tagwerk idle" in text
+    assert "on-resume = tagwerk active" in text
+    assert "ignore_dbus_inhibit = false" in text
+    assert "lock_cmd" not in text
+
+
+def test_claude_hooks_fragment_beats_on_four_events_with_a_5s_timeout() -> None:
+    hooks = json.loads((CONTRIB / "claude-hooks.json").read_text())["hooks"]
+    assert set(hooks) == {"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop"}
+    commands = [hook for groups in hooks.values() for group in groups for hook in group["hooks"]]
+    assert len(commands) == 4
+    assert all(hook["command"].startswith("tagwerk beat claude") for hook in commands)
+    assert all(hook["timeout"] == 5 for hook in commands)
+    assert hooks["PostToolUse"][0]["matcher"] == "*"
+
+
+def test_pi_extension_spawns_tagwerk_by_absolute_path_on_four_events() -> None:
+    text = (CONTRIB / "pi/tagwerk.ts").read_text()
+    for event in ("session_start", "turn_start", "tool_execution_end", "agent_settled"):
+        assert f"pi.on('{event}', beat)" in text
+    assert "join(homedir(), '.local', 'bin', 'tagwerk')" in text
+    assert "['beat', 'pi', '--cwd', ctx.cwd]" in text
