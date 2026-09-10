@@ -11,6 +11,11 @@ alias = "f"
 description = "Run all linters and formatters in fix mode"
 run = "hk fix --all"
 
+[tasks.test]
+alias = "t"
+description = "Run pytest then mypy strict on the module"
+run = ["uv run pytest -q", "uv run mypy --strict tagwerk.py"]
+
 [tools]
 "aqua:astral-sh/uv" = "0.12.10"
 "aqua:dprint/dprint" = "0.57.4"
