@@ -228,20 +228,24 @@ def render_table(minutes: dict[Bucket, float]) -> str:
     return "\n".join(f"{name:<{name_width}}  {hours:>{hours_width}}" for name, hours in cells)
 
 
-def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: str) -> None:
-    if end <= start:
-        raise SystemExit(
-            f"end must be after start: {start.astimezone():%Y-%m-%dT%H:%M} to {end.astimezone():%Y-%m-%dT%H:%M}"
-        )
+def append_span(config: Config, start: datetime, end: datetime, kind: str, project: str, src: str) -> None:
     span = {
         "ev": "span",
         "start": format_utc(start),
         "end": format_utc(end),
         "kind": kind,
         "project": project,
-        "src": "fix",
+        "src": src,
     }
     append_event(config, span)
+
+
+def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: str) -> None:
+    if end <= start:
+        raise SystemExit(
+            f"end must be after start: {start.astimezone():%Y-%m-%dT%H:%M} to {end.astimezone():%Y-%m-%dT%H:%M}"
+        )
+    append_span(config, start, end, kind, project, "fix")
 
 
 def active_window() -> tuple[str, str, int] | None:
