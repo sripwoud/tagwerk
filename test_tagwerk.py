@@ -95,7 +95,7 @@ def seed(ledger: Path, *events: Event) -> None:
             month.write(json.dumps(event) + "\n")
 
 
-@pytest.mark.parametrize("command", [[], ["fix"], ["today"], ["month"], ["focus"]])
+@pytest.mark.parametrize("command", [[], ["fix"], ["today"], ["month"], ["focus"], ["import-timew"]])
 def test_help_exits_zero_and_prints_usage(capsys: pytest.CaptureFixture[str], command: list[str]) -> None:
     with pytest.raises(SystemExit) as raised:
         tagwerk.main([*command, "--help"])
@@ -674,3 +674,104 @@ def test_focus_unit_restarts_on_failure_inside_the_graphical_session() -> None:
     assert unit["Service"]["ExecStart"] == "%h/.local/bin/tagwerk focus"
     assert unit["Service"]["Restart"] == "on-failure"
     assert unit["Unit"]["PartOf"] == unit["Install"]["WantedBy"] == "graphical-session.target"
+
+
+def timew_export(path: Path, intervals: list[dict[str, object]]) -> Path:
+    path.write_text(json.dumps(intervals))
+    return path
+
+
+def timew_stamp(moment: datetime) -> str:
+    return moment.astimezone(UTC).strftime("%Y%m%dT%H%M%SZ")
+
+
+def test_import_timew_maps_tags_and_files_spans_under_their_utc_month(
+    data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    export = timew_export(
+        tmp_path / "export.json",
+        [
+            {"id": 4, "start": "20260303T073000Z", "end": "20260303T084842Z", "tags": ["acme", "project:x"]},
+            {"id": 3, "start": "20260303T084842Z", "end": "20260303T090822Z", "tags": ["acme"]},
+            {"id": 2, "start": "20260303T090822Z", "end": "20260303T100724Z", "tags": ["lunch"]},
+            {"id": 1, "start": "20260303T100724Z", "end": "20260303T112606Z"},
+        ],
+    )
+    assert run(capsys, "import-timew", "--work-tag", "acme", str(export)) == [["4"]]
+    [ledger] = data_dir.glob("*.jsonl")
+    assert ledger.name == "2026-03.jsonl"
+    spans = [json.loads(line) for line in ledger.read_text().splitlines()]
+    assert [(span["kind"], span["project"]) for span in spans] == [
+        ("work", "x"),
+        ("work", "general"),
+        ("personal", "general"),
+        ("personal", "general"),
+    ]
+    assert {span["src"] for span in spans} == {"timew"}
+    assert (spans[0]["start"], spans[0]["end"]) == ("2026-03-03T07:30:00Z", "2026-03-03T08:48:42Z")
+
+
+def test_imported_spans_are_reported_by_today(
+    data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    noon = datetime.now(UTC).astimezone().replace(hour=12, minute=0, second=0, microsecond=0)
+    export = timew_export(
+        tmp_path / "export.json",
+        [
+            {"start": timew_stamp(noon), "end": timew_stamp(noon + timedelta(hours=1)), "tags": ["acme", "project:x"]},
+            {
+                "start": timew_stamp(noon + timedelta(hours=1)),
+                "end": timew_stamp(noon + timedelta(hours=3)),
+                "tags": ["project:y"],
+            },
+        ],
+    )
+    run(capsys, "import-timew", "--work-tag", "acme", str(export))
+    assert run(capsys, "today") == [["x", "1:00"], ["y", "2:00"], ["work", "1:00"], ["total", "3:00"]]
+
+
+def test_import_timew_skips_open_intervals(data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    export = timew_export(
+        tmp_path / "export.json",
+        [
+            {"start": "20260715T073000Z", "end": "20260715T080000Z", "tags": ["project:x"]},
+            {"start": "20260715T080000Z", "tags": ["project:x"]},
+        ],
+    )
+    assert run(capsys, "import-timew", "--work-tag", "acme", str(export)) == [["1"]]
+    [ledger] = data_dir.glob("*.jsonl")
+    assert len(ledger.read_text().splitlines()) == 1
+
+
+def test_import_timew_refuses_a_second_run_and_appends_nothing(
+    data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    march = timew_export(
+        tmp_path / "march.json", [{"start": "20260303T073000Z", "end": "20260303T080000Z", "tags": ["acme"]}]
+    )
+    run(capsys, "import-timew", "--work-tag", "acme", str(march))
+    before = {ledger.name: ledger.read_text() for ledger in data_dir.glob("*.jsonl")}
+    july = timew_export(
+        tmp_path / "july.json", [{"start": "20260715T073000Z", "end": "20260715T080000Z", "tags": ["acme"]}]
+    )
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main(["import-timew", "--work-tag", "acme", str(july)])
+    assert raised.value.code
+    assert "timew" in str(raised.value)
+    assert {ledger.name: ledger.read_text() for ledger in data_dir.glob("*.jsonl")} == before
+
+
+def test_import_timew_fails_on_a_missing_file_naming_it(data_dir: Path, tmp_path: Path) -> None:
+    missing = tmp_path / "nope.json"
+    with pytest.raises(SystemExit, match=re.escape(str(missing))):
+        tagwerk.main(["import-timew", "--work-tag", "acme", str(missing)])
+    assert not data_dir.exists()
+
+
+def test_import_timew_runs_timew_export_without_a_file(
+    data_dir: Path, fake_bin: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    export = json.dumps([{"start": "20260303T073000Z", "end": "20260303T080000Z", "tags": ["acme"]}])
+    args = fake(fake_bin, "timew", export)
+    assert run(capsys, "import-timew", "--work-tag", "acme") == [["1"]]
+    assert args.read_text() == "export\n"

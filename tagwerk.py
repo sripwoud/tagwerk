@@ -228,20 +228,46 @@ def render_table(minutes: dict[Bucket, float]) -> str:
     return "\n".join(f"{name:<{name_width}}  {hours:>{hours_width}}" for name, hours in cells)
 
 
-def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: str) -> None:
-    if end <= start:
-        raise SystemExit(
-            f"end must be after start: {start.astimezone():%Y-%m-%dT%H:%M} to {end.astimezone():%Y-%m-%dT%H:%M}"
-        )
+def append_span(config: Config, start: datetime, end: datetime, kind: str, project: str, src: str) -> None:
     span = {
         "ev": "span",
         "start": format_utc(start),
         "end": format_utc(end),
         "kind": kind,
         "project": project,
-        "src": "fix",
+        "src": src,
     }
     append_event(config, span)
+
+
+def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: str) -> None:
+    if end <= start:
+        raise SystemExit(
+            f"end must be after start: {start.astimezone():%Y-%m-%dT%H:%M} to {end.astimezone():%Y-%m-%dT%H:%M}"
+        )
+    append_span(config, start, end, kind, project, "fix")
+
+
+def cmd_import_timew(config: Config, work_tag: str, export: Path | None) -> None:
+    if any(
+        event["ev"] == "span" and event["src"] == "timew"
+        for path in config.data_dir.glob("*.jsonl")
+        for event in read_ledger_file(path)
+    ):
+        raise SystemExit(f"{config.data_dir} already holds timew spans; import-timew runs once")
+    try:
+        text = export.read_text() if export else subprocess.check_output(["timew", "export"], text=True)
+        intervals: list[dict[str, Any]] = json.loads(text)
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as err:
+        raise SystemExit(f"cannot read timew export: {err}") from err
+    closed = [interval for interval in intervals if "end" in interval]
+    for interval in closed:
+        tags = interval.get("tags", [])
+        project = next((tag.removeprefix("project:") for tag in tags if tag.startswith("project:")), "general")
+        kind = "work" if work_tag in tags else "personal"
+        start, end = datetime.fromisoformat(interval["start"]), datetime.fromisoformat(interval["end"])
+        append_span(config, start, end, kind, project, "timew")
+    print(len(closed))
 
 
 def active_window() -> tuple[str, str, int] | None:
@@ -319,6 +345,9 @@ def main(argv: list[str]) -> int:
     month.add_argument("month", nargs="?", type=parse_month, default=None, help="YYYY-MM, default the current month")
     focus = commands.add_parser("focus", help="poll the focused window and kitty cwd into the ledger")
     focus.add_argument("--once", action="store_true", help="one poll, then exit")
+    import_timew = commands.add_parser("import-timew", help="one-shot import of the timewarrior export as spans")
+    import_timew.add_argument("--work-tag", required=True, metavar="TAG", help="tag that marks an interval as work")
+    import_timew.add_argument("file", nargs="?", type=Path, help="timew export JSON; runs timew export when omitted")
     args = parser.parse_args(argv)
     config = load_config(Path(os.environ.get("TAGWERK_CONFIG") or default_config_path()).expanduser())
     if args.command == "fix":
@@ -327,6 +356,8 @@ def main(argv: list[str]) -> int:
         report(config, *local_month(args.month or local_today().replace(day=1)))
     elif args.command == "focus":
         cmd_focus(config, args.once)
+    elif args.command == "import-timew":
+        cmd_import_timew(config, args.work_tag, args.file)
     else:
         report(config, *local_day(local_today()))
     return 0
