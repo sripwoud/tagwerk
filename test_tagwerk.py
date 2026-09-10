@@ -1108,6 +1108,26 @@ def test_bar_colours_are_stable_per_work_project_blue_for_general_and_grey_for_p
     assert lines(capsys, "week", "-n", WEEK)[2] == wednesday
 
 
+def test_repos_sharing_a_hue_alternate_full_and_shade_cells_so_their_segments_stay_apart(
+    ledger: Path, berlin: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(
+        ledger,
+        hours(T0, 3),
+        hours(T0 + 3 * timedelta(hours=1), 2, "hermes"),
+        hours(T0 + 5 * timedelta(hours=1), 1, "hedera"),
+        hours(T0 + 6 * timedelta(hours=1), 1, "auberge", "personal"),
+    )
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    segments = re.findall(r"\033\[38;5;(\d+)m([█▓]+)", lines(capsys, "week", "-n", WEEK)[2])
+    assert [cells for _, cells in segments] == ["█" * 6, "▓" * 4, "█" * 2, "█" * 2]
+    (orchid,) = {int(index) for index, _ in segments[:3]}
+    assert orchid in tagwerk.PALETTE
+    monkeypatch.setenv("NO_COLOR", "1")
+    monkeypatch.delenv("FORCE_COLOR")
+    assert lines(capsys, "week", "-n", WEEK)[2].split()[2] == "██████▓▓▓▓████··│········"
+
+
 def test_caps_come_from_the_config_and_change_colours_but_never_numbers(
     home: Path, berlin: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

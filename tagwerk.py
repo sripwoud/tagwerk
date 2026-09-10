@@ -28,7 +28,7 @@ BLUE = 33
 DIM = 238
 GREYS = (240, 245, 250)
 # ponytail: five hues pass the dataviz validator on every pair, so a crc32 over them collides past a handful of repos;
-# widen PALETTE with hues that still pass the validator once two repos share one
+# render_bar shades only an adjacent same-hue neighbour; two colliders apart in a bar still match, a legend would fix it
 PALETTE = (166, 36, 176, 61, 142)
 
 
@@ -310,12 +310,12 @@ def color(bucket: Bucket) -> str:
 
 
 def render_bar(minutes: dict[Bucket, float], scale_h: float, cap_h: float) -> str:
-    codes = [
-        color(bucket)
-        for bucket, credited in ranked(minutes)
-        for _ in range(round(credited / (scale_h * 60) * BAR_WIDTH))
-    ]
-    cells = [("█", code) for code in codes[:BAR_WIDTH]]
+    cells: list[tuple[str, str]] = []
+    for bucket, credited in ranked(minutes):
+        code = color(bucket)
+        char = "▓" if cells and cells[-1] == ("█", code) else "█"
+        cells += [(char, code)] * round(credited / (scale_h * 60) * BAR_WIDTH)
+    cells = cells[:BAR_WIDTH]
     cells += [("·", ansi(DIM))] * (BAR_WIDTH - len(cells))
     cells.insert(round(cap_h / scale_h * BAR_WIDTH), ("│", ansi(DIM)))
     return "".join(paint(char * len(list(run)), code) for (char, code), run in groupby(cells))
