@@ -769,6 +769,14 @@ def test_focus_unit_restarts_on_failure_inside_the_graphical_session() -> None:
     assert unit["Unit"]["PartOf"] == unit["Install"]["WantedBy"] == "graphical-session.target"
 
 
+def test_idle_unit_runs_hypridle_on_the_packaged_config_inside_the_graphical_session() -> None:
+    unit = configparser.ConfigParser(interpolation=None)
+    unit.read(CONTRIB / "tagwerk-idle.service")
+    assert unit["Service"]["ExecStart"] == "/usr/bin/hypridle --config /usr/share/tagwerk/hypridle.conf"
+    assert unit["Service"]["Restart"] == "on-failure"
+    assert unit["Unit"]["PartOf"] == unit["Install"]["WantedBy"] == "graphical-session.target"
+
+
 def timew_export(path: Path, intervals: list[dict[str, object]]) -> Path:
     path.write_text(json.dumps(intervals))
     return path

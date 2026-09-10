@@ -1,0 +1,13 @@
+[Unit]
+Description=tagwerk idle marks via hypridle
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionEnvironment=HYPRLAND_INSTANCE_SIGNATURE
+
+[Service]
+ExecStart=/usr/bin/hypridle --config /usr/share/tagwerk/hypridle.conf
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

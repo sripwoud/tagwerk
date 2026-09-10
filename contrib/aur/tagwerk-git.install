@@ -2,8 +2,7 @@ post_install() {
   cat <<'EOF'
 tagwerk: finish in your home directory
   install -Dm644 /usr/share/tagwerk/config.example.toml ~/.config/tagwerk/config.toml && $EDITOR ~/.config/tagwerk/config.toml
-  install -Dm644 /usr/share/tagwerk/hypridle.conf ~/.config/hypr/hypridle.conf
-  systemctl --user enable --now hypridle.service tagwerk-focus.service
+  systemctl --user enable --now tagwerk-idle.service tagwerk-focus.service
 Agent hooks and verification: https://github.com/sripwoud/tagwerk#install
 EOF
 }
