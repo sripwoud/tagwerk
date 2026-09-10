@@ -49,7 +49,11 @@ def read_events(cfg: Config, start: datetime, end: datetime) -> list[Event]:
         path = month_file(cfg, month)
         if path.is_file():
             with path.open() as ledger:
-                events.extend(json.loads(line) for line in ledger)
+                for lineno, line in enumerate(ledger, 1):
+                    try:
+                        events.append(json.loads(line))
+                    except json.JSONDecodeError as err:
+                        raise SystemExit(f"{path}:{lineno}: malformed ledger line: {err}") from err
         month = (month + timedelta(days=32)).replace(day=1)
     return sorted(events, key=lambda event: event["ts"])
 

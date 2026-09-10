@@ -107,3 +107,14 @@ def test_fix_rejects_end_at_or_before_start_and_appends_nothing(data_dir: Path, 
     assert raised.value.code
     assert "start" in str(raised.value)
     assert not data_dir.exists()
+
+
+def test_today_fails_on_a_malformed_line_naming_file_and_line(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    [ledger] = data_dir.glob("*.jsonl")
+    with ledger.open("a") as broken:
+        broken.write("{not json\n")
+    with pytest.raises(SystemExit, match=re.escape(f"{ledger}:2")):
+        tagwerk.main(["today"])
