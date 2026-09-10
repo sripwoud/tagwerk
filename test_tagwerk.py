@@ -6,7 +6,7 @@ import re
 import subprocess
 import time
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,12 @@ CONTRIB = SCRIPT.parent / "contrib"
 T0 = datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
 MINUTE = timedelta(minutes=1)
 Event = dict[str, Any]
+
+
+@pytest.fixture(autouse=True)
+def plain_stdout(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    monkeypatch.delenv("FORCE_COLOR", raising=False)
 
 
 @pytest.fixture
@@ -65,6 +71,15 @@ def run(capsys: pytest.CaptureFixture[str], *argv: str) -> list[list[str]]:
     return [line.split() for line in lines(capsys, *argv)]
 
 
+def weeks_back(day: date) -> str:
+    today = datetime.now(UTC).astimezone().date()
+    return str((today - timedelta(days=today.weekday()) - (day - timedelta(days=day.weekday()))).days // 7)
+
+
+def hours(day: datetime, count: float, project: str = "assets", kind: str = "work") -> Event:
+    return span(day, day + timedelta(hours=count), project, kind)
+
+
 def stamp(moment: datetime) -> str:
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -104,7 +119,19 @@ def seed(ledger: Path, *events: Event) -> None:
 
 @pytest.mark.parametrize(
     "command",
-    [[], ["fix"], ["today"], ["month"], ["invoice"], ["focus"], ["import-timew"], ["beat"], ["idle"], ["active"]],
+    [
+        [],
+        ["fix"],
+        ["today"],
+        ["week"],
+        ["month"],
+        ["invoice"],
+        ["focus"],
+        ["import-timew"],
+        ["beat"],
+        ["idle"],
+        ["active"],
+    ],
 )
 def test_help_exits_zero_and_prints_usage(capsys: pytest.CaptureFixture[str], command: list[str]) -> None:
     with pytest.raises(SystemExit) as raised:
@@ -955,3 +982,137 @@ def test_pi_extension_spawns_tagwerk_by_absolute_path_on_four_events() -> None:
         assert f"pi.on('{event}', beat)" in text
     assert "join(homedir(), '.local', 'bin', 'tagwerk')" in text
     assert "['beat', 'pi', '--cwd', ctx.cwd]" in text
+
+
+WEEK = weeks_back(T0.date())
+MONDAY = T0 - 2 * timedelta(days=1)
+
+
+def test_week_bar_fills_its_rounded_share_and_marks_the_cap(
+    ledger: Path, berlin: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("NO_COLOR", "1")
+    seed(ledger, hours(T0, 10))
+    out = lines(capsys, "week", "-n", WEEK)
+    assert "\033" not in "\n".join(out)
+    assert [line.split()[:2] for line in out[:7]] == [
+        ["Mon", "03"],
+        ["Tue", "04"],
+        ["Wed", "05"],
+        ["Thu", "06"],
+        ["Fri", "07"],
+        ["Sat", "08"],
+        ["Sun", "09"],
+    ]
+    _, _, bar, booked = out[2].split()
+    assert booked == "10:00"
+    assert (len(bar), bar.count("█"), bar.count("·"), bar.index("│")) == (25, 20, 4, 16)
+    _, _, empty, none = out[6].split()
+    assert (empty, none) == ("·" * 16 + "│" + "·" * 8, "0:00")
+
+
+def test_week_paints_labels_red_over_the_day_cap_or_on_a_busy_weekend(
+    ledger: Path, berlin: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    tuesday, wednesday, saturday = MONDAY + timedelta(days=1), T0, MONDAY + timedelta(days=5)
+    seed(
+        ledger,
+        hours(tuesday, 5),
+        hours(tuesday + 5 * timedelta(hours=1), 4, "auberge", "personal"),
+        hours(wednesday, 7),
+        hours(saturday, 1),
+    )
+    out = lines(capsys, "week", "-n", WEEK)
+    red = f"{tagwerk.RED}{{}}{tagwerk.RESET}"
+    assert out[1].startswith(red.format("Tue 04"))
+    assert out[2].startswith("Wed 05  ")
+    assert out[5].startswith(red.format("Sat 08"))
+    assert out[6].startswith("Sun 09  ")
+
+
+@pytest.mark.parametrize(("extra_minutes", "footer"), [(0, "work 40:00 / 40:00"), (60, "work 41:00 / 40:00")])
+def test_week_footer_shows_work_against_the_cap_and_turns_red_above_it(
+    ledger: Path,
+    berlin: None,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    extra_minutes: int,
+    footer: str,
+) -> None:
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    seed(ledger, *(hours(MONDAY + timedelta(days=offset), 8) for offset in range(5)))
+    seed(ledger, span(T0 + 9 * timedelta(hours=1), T0 + 9 * timedelta(hours=1) + extra_minutes * MINUTE, "assets"))
+    seed(ledger, hours(T0 + 11 * timedelta(hours=1), 1, "auberge", "personal"))
+    out = lines(capsys, "week", "-n", WEEK)
+    assert out[7] == (f"{tagwerk.RED}{footer}{tagwerk.RESET}" if extra_minutes else footer)
+
+
+def test_week_lands_a_span_over_utc_midnight_on_one_local_date(
+    ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    late = datetime(2026, 8, 5, 23, 30, tzinfo=UTC)
+    seed(ledger, span(late, late + 60 * MINUTE, "assets"))
+    out = run(capsys, "week", "-n", WEEK)
+    assert out[2][-1] == "0:00"
+    assert out[3][-1] == "1:00"
+
+
+def test_week_defaults_to_the_current_week(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    today = datetime.now(UTC).astimezone().date()
+    out = run(capsys, "week")
+    assert out[today.weekday()][:2] == [f"{today:%a}", f"{today:%d}"]
+    assert out[today.weekday()][-1] == "1:00"
+    assert out[7] == ["work", "1:00", "/", "40:00"]
+
+
+@pytest.mark.parametrize(
+    ("env", "escaped"), [({}, False), ({"FORCE_COLOR": "1"}, True), ({"NO_COLOR": "1", "FORCE_COLOR": "1"}, True)]
+)
+def test_piped_output_carries_escapes_only_under_force_color(
+    ledger: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    env: dict[str, str],
+    escaped: bool,
+) -> None:
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    seed(ledger, hours(T0, 2))
+    assert ("\033[" in "\n".join(lines(capsys, "week", "-n", WEEK))) is escaped
+
+
+def test_bar_colours_are_stable_per_work_project_blue_for_general_and_grey_for_personal(
+    ledger: Path, berlin: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    seed(
+        ledger,
+        hours(T0, 2),
+        hours(T0 + 2 * timedelta(hours=1), 2, "general"),
+        hours(T0 + 4 * timedelta(hours=1), 2, "auberge", "personal"),
+    )
+    wednesday = lines(capsys, "week", "-n", WEEK)[2]
+    segments = re.findall(r"\033\[38;5;(\d+)m(█+)", wednesday)
+    assert [len(cells) for _, cells in segments] == [4, 4, 4]
+    assets, general, auberge = (int(index) for index, _ in segments)
+    assert assets in tagwerk.PALETTE
+    assert general == tagwerk.BLUE
+    assert auberge in tagwerk.GREYS
+    assert lines(capsys, "week", "-n", WEEK)[2] == wednesday
+
+
+def test_caps_come_from_the_config_and_change_colours_but_never_numbers(
+    home: Path, berlin: None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    (home / "config.toml").write_text(f'data_dir = "{home}/data"\nday_cap_h = 4\nweek_cap_h = 4\n')
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
+    seed(home / "data", hours(T0, 5))
+    out = lines(capsys, "week", "-n", WEEK)
+    assert out[2].startswith(f"{tagwerk.RED}Wed 05{tagwerk.RESET}")
+    assert out[2].endswith("5:00")
+    assert out[7] == f"{tagwerk.RED}work 5:00 / 4:00{tagwerk.RESET}"
+    _, _, bar, _ = out[2].split()
+    assert re.sub(r"\033\[[0-9;]*m", "", bar).index("│") == 8

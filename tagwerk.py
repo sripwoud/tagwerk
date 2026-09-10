@@ -7,16 +7,28 @@ import re
 import subprocess
 import sys
 import tomllib
+import zlib
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
+from itertools import groupby
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, NamedTuple
 
 Event = dict[str, Any]
 REPOLL_SEC = 60
+BAR_WIDTH = 24
+DAY_SCALE_H = 12
+WEEK_SCALE_H = 60
+RED = "\033[31m"
+RESET = "\033[0m"
+BLUE = 33
+DIM = 238
+GREYS = (240, 245, 250)
+# ponytail: five hues pass the dataviz validator on every pair; a hash over five slots collides past a handful of repos
+PALETTE = (166, 36, 176, 61, 142)
 
 
 class Bucket(NamedTuple):
@@ -43,6 +55,8 @@ class Config:
     titles: list[TitleRule]
     poll_sec: float
     kitty_socket: str
+    day_cap_h: float
+    week_cap_h: float
 
 
 def default_config_path() -> Path:
@@ -70,6 +84,8 @@ def load_config(path: Path) -> Config:
         roots=roots,
         titles=[(re.compile(rule["pattern"]), rule["kind"], rule.get("project")) for rule in raw.get("title", [])],
         kitty_socket=raw.get("kitty_socket", "unix:${XDG_RUNTIME_DIR}/omarchy-kitty-{pid}"),
+        day_cap_h=raw.get("day_cap_h", 8),
+        week_cap_h=raw.get("week_cap_h", 40),
     )
 
 
@@ -265,6 +281,47 @@ def render_invoice(minutes: dict[Bucket, float]) -> str:
     return "\n".join(lines)
 
 
+def colored() -> bool:
+    if os.environ.get("FORCE_COLOR"):
+        return True
+    return not os.environ.get("NO_COLOR") and sys.stdout.isatty()
+
+
+def paint(text: str, code: str) -> str:
+    return f"{code}{text}{RESET}" if colored() else text
+
+
+def ansi(index: int) -> str:
+    return f"\033[38;5;{index}m"
+
+
+def color(bucket: Bucket) -> str:
+    digest = zlib.crc32(bucket.project.encode())
+    if bucket.kind == "personal":
+        return ansi(GREYS[digest % len(GREYS)])
+    if bucket.is_repo:
+        return ansi(PALETTE[digest % len(PALETTE)])
+    return ansi(BLUE)
+
+
+def render_bar(minutes: dict[Bucket, float], scale_h: float, cap_h: float) -> str:
+    codes = [
+        color(bucket)
+        for bucket, credited in ranked(minutes)
+        for _ in range(round(credited / (scale_h * 60) * BAR_WIDTH))
+    ]
+    cells = [("█", code) for code in codes[:BAR_WIDTH]]
+    cells += [("·", ansi(DIM))] * (BAR_WIDTH - len(cells))
+    cells.insert(round(cap_h / scale_h * BAR_WIDTH), ("│", ansi(DIM)))
+    return "".join(paint(char * len(list(run)), code) for (char, code), run in groupby(cells))
+
+
+def bar_line(label: str, minutes: dict[Bucket, float], scale_h: float, cap_h: float, weekend: bool = False) -> str:
+    total = sum(minutes.values())
+    hot = total > cap_h * 60 or (weekend and total > 0)
+    return f"{paint(label, RED) if hot else label}  {render_bar(minutes, scale_h, cap_h)}  {format_hours(total):>5}"
+
+
 def append_span(config: Config, start: datetime, end: datetime, kind: str, project: str, src: str) -> None:
     span = {
         "ev": "span",
@@ -381,6 +438,20 @@ def report(config: Config, start: datetime, end: datetime, render: Callable[[dic
     print(render(merge(credited_days(config, start, end).values())))
 
 
+def cmd_week(config: Config, weeks_back: int) -> None:
+    today = local_today()
+    monday = today - timedelta(days=today.weekday(), weeks=weeks_back)
+    days = credited_days(config, *local_range(monday, monday + timedelta(days=7)))
+    out = [
+        bar_line(f"{day:%a %d}", days.get(day, {}), DAY_SCALE_H, config.day_cap_h, weekend=day.weekday() >= 5)
+        for day in (monday + timedelta(days=offset) for offset in range(7))
+    ]
+    work = work_minutes(merge(days.values()))
+    footer = f"work {format_hours(work)} / {format_hours(config.week_cap_h * 60)}"
+    out.append(paint(footer, RED) if work > config.week_cap_h * 60 else footer)
+    print("\n".join(out))
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="tagwerk", description="Passive work-hours ledger for one Linux desktop.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -397,6 +468,8 @@ def main(argv: list[str]) -> int:
     )
     fix.set_defaults(kind="work")
     commands.add_parser("today", help="hours per project for the local day")
+    week = commands.add_parser("week", help="one bar per day, Monday to Sunday, with the day and week caps")
+    week.add_argument("-n", type=int, default=0, metavar="N", help="weeks back, default 0")
     month = commands.add_parser("month", help="hours per project for a calendar month")
     month.add_argument("month", nargs="?", type=parse_month, default=None, help="YYYY-MM, default the current month")
     invoice = commands.add_parser("invoice", help="markdown table of work hours per project in quarter hours")
@@ -421,6 +494,8 @@ def main(argv: list[str]) -> int:
         cmd_beat(config, args.src, args.cwd)
     elif args.command in ("idle", "active"):
         append_event(config, {"ev": args.command})
+    elif args.command == "week":
+        cmd_week(config, args.n)
     elif args.command == "month":
         report(config, *local_month(args.month or local_today().replace(day=1)), render_table)
     elif args.command == "invoice":
