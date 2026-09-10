@@ -84,7 +84,7 @@ def local_day(day: date) -> tuple[datetime, datetime]:
 
 
 def local_time(text: str) -> datetime:
-    local = datetime.combine(today_local(), time.fromisoformat(text))
+    local = datetime.fromisoformat(text) if "T" in text else datetime.combine(today_local(), time.fromisoformat(text))
     return local.astimezone().astimezone(UTC)
 
 
@@ -104,6 +104,10 @@ def render_table(minutes: dict[Bucket, float]) -> str:
 
 
 def cmd_fix(cfg: Config, start: datetime, end: datetime, project: str, kind: str) -> None:
+    if end <= start:
+        raise SystemExit(
+            f"end must be after start: {start.astimezone():%Y-%m-%dT%H:%M} to {end.astimezone():%Y-%m-%dT%H:%M}"
+        )
     append_event(
         cfg, {"ev": "span", "start": iso_z(start), "end": iso_z(end), "kind": kind, "project": project, "src": "fix"}
     )
@@ -118,8 +122,8 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="tagwerk", description="Passive work-hours ledger for one Linux desktop.")
     commands = parser.add_subparsers(dest="command", required=True)
     fix = commands.add_parser("fix", help="book a span by hand; it overrides the sensors for its range")
-    fix.add_argument("start", type=local_time, help="HH:MM, local time today")
-    fix.add_argument("end", type=local_time, help="HH:MM, local time today")
+    fix.add_argument("start", type=local_time, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
+    fix.add_argument("end", type=local_time, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
     fix.add_argument("project")
     kind = fix.add_mutually_exclusive_group()
     kind.add_argument(

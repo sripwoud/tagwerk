@@ -90,3 +90,20 @@ def test_off_span_removes_booked_minutes(data_dir: Path, capsys: pytest.CaptureF
     run(capsys, "fix", "09:00", "10:00", "assets")
     run(capsys, "fix", "09:30", "10:00", "lunch", "--off")
     assert run(capsys, "today") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
+
+
+def test_fix_accepts_an_explicit_local_date(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    today = datetime.now(UTC).astimezone().date()
+    yesterday = today - timedelta(days=1)
+    run(capsys, "fix", f"{today}T09:00", f"{today}T09:45", "assets")
+    run(capsys, "fix", f"{yesterday}T09:00", f"{yesterday}T12:00", "assets")
+    assert run(capsys, "today") == [["assets", "0:45"], ["work", "0:45"], ["total", "0:45"]]
+
+
+@pytest.mark.parametrize(("start", "end"), [("15:00", "14:00"), ("14:00", "14:00")])
+def test_fix_rejects_end_at_or_before_start_and_appends_nothing(data_dir: Path, start: str, end: str) -> None:
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main(["fix", start, end, "x"])
+    assert raised.value.code
+    assert "start" in str(raised.value)
+    assert not data_dir.exists()
