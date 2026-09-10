@@ -255,9 +255,11 @@ def cmd_import_timew(config: Config, work_tag: str, export: Path | None) -> None
         for event in read_ledger_file(path)
     ):
         raise SystemExit(f"{config.data_dir} already holds timew spans; import-timew runs once")
-    intervals: list[dict[str, Any]] = json.loads(
-        export.read_text() if export else subprocess.check_output(["timew", "export"], text=True)
-    )
+    try:
+        text = export.read_text() if export else subprocess.check_output(["timew", "export"], text=True)
+        intervals: list[dict[str, Any]] = json.loads(text)
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as err:
+        raise SystemExit(f"cannot read timew export: {err}") from err
     closed = [interval for interval in intervals if "end" in interval]
     for interval in closed:
         tags = interval.get("tags", [])

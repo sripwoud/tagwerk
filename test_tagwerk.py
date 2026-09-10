@@ -761,6 +761,13 @@ def test_import_timew_refuses_a_second_run_and_appends_nothing(
     assert {ledger.name: ledger.read_text() for ledger in data_dir.glob("*.jsonl")} == before
 
 
+def test_import_timew_fails_on_a_missing_file_naming_it(data_dir: Path, tmp_path: Path) -> None:
+    missing = tmp_path / "nope.json"
+    with pytest.raises(SystemExit, match=re.escape(str(missing))):
+        tagwerk.main(["import-timew", "--work-tag", "acme", str(missing)])
+    assert not data_dir.exists()
+
+
 def test_import_timew_runs_timew_export_without_a_file(
     data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
