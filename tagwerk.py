@@ -18,6 +18,10 @@ class Bucket(NamedTuple):
     kind: str
     project: str
 
+    @property
+    def is_repo(self) -> bool:
+        return self.project not in ("general", "other")
+
 
 OTHER = Bucket("personal", "other")
 TitleRule = tuple[re.Pattern[str], str, str | None]
@@ -80,10 +84,6 @@ def resolve_title(config: Config, title: str | None) -> Bucket | None:
     return None
 
 
-def is_repo(bucket: Bucket) -> bool:
-    return bucket.project not in ("general", "other")
-
-
 def format_utc(moment: datetime) -> str:
     return moment.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
@@ -144,13 +144,13 @@ def attribute(config: Config, events: list[Event], start: datetime, end: datetim
     last_poll: datetime | None = None
     ambient: Bucket | None = None
     leases: dict[Bucket, datetime] = {}
-    pending = 0
+    applied = 0
     minute = start
     # ponytail: O(minutes x spans) scan per report; a month is 43k minutes, fine for years of data
     while minute < end:
-        while pending < len(stream) and stream[pending][0] <= minute:
-            ts, event = stream[pending]
-            pending += 1
+        while applied < len(stream) and stream[applied][0] <= minute:
+            ts, event = stream[applied]
+            applied += 1
             if event["ev"] == "idle":
                 idle = True
             elif event["ev"] == "active":
@@ -158,12 +158,12 @@ def attribute(config: Config, events: list[Event], start: datetime, end: datetim
             elif event["ev"] == "focus":
                 last_poll = ts
                 bucket = resolve_cwd(config, event["cwd"]) or resolve_title(config, event["title"])
-                if bucket is not None and is_repo(bucket):
+                if bucket is not None and bucket.is_repo:
                     leases[bucket] = ts + config.focus_lease
-                ambient = bucket if bucket is not None and not is_repo(bucket) else None
+                ambient = bucket if bucket is not None and not bucket.is_repo else None
             elif event["ev"] == "beat":
                 bucket = resolve_cwd(config, event["cwd"])
-                if bucket is not None and is_repo(bucket):
+                if bucket is not None and bucket.is_repo:
                     leases[bucket] = ts + config.beat_lease
         leases = {bucket: expiry for bucket, expiry in leases.items() if expiry > minute}
         # ponytail: the latest span covering a minute wins wholesale; no partial merge with sensor minutes
@@ -185,8 +185,8 @@ def local_today() -> date:
     return datetime.now(UTC).astimezone().date()
 
 
-def local_range(first: date, last: date) -> tuple[datetime, datetime]:
-    return datetime.combine(first, time.min).astimezone(UTC), datetime.combine(last, time.min).astimezone(UTC)
+def local_range(start: date, stop: date) -> tuple[datetime, datetime]:
+    return datetime.combine(start, time.min).astimezone(UTC), datetime.combine(stop, time.min).astimezone(UTC)
 
 
 def local_day(day: date) -> tuple[datetime, datetime]:

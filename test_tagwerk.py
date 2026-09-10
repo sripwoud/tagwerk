@@ -13,7 +13,7 @@ import tagwerk
 
 SCRIPT = Path(tagwerk.__file__)
 T0 = datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
-M = timedelta(minutes=1)
+MINUTE = timedelta(minutes=1)
 Event = dict[str, Any]
 
 
@@ -61,9 +61,12 @@ def stamp(moment: datetime) -> str:
 
 
 def polls(
-    start: datetime, count: int, cls: str = "vivaldi", title: str = "New Tab - Vivaldi", cwd: str | None = None
+    start: datetime, count: int, window_class: str = "vivaldi", title: str = "New Tab - Vivaldi", cwd: str | None = None
 ) -> list[Event]:
-    return [{"ts": stamp(start + i * M), "ev": "focus", "class": cls, "title": title, "cwd": cwd} for i in range(count)]
+    return [
+        {"ts": stamp(start + i * MINUTE), "ev": "focus", "class": window_class, "title": title, "cwd": cwd}
+        for i in range(count)
+    ]
 
 
 def mark(moment: datetime, ev: str) -> Event:
@@ -75,7 +78,7 @@ def beat(moment: datetime, cwd: str) -> Event:
 
 
 def present(start: datetime, count: int, **window: Any) -> list[Event]:
-    return [mark(start, "active"), *polls(start, count, **window), mark(start + count * M, "idle")]
+    return [mark(start, "active"), *polls(start, count, **window), mark(start + count * MINUTE, "idle")]
 
 
 def span(start: datetime, end: datetime, project: str, kind: str = "work") -> Event:
@@ -255,7 +258,7 @@ def test_month_without_an_argument_uses_the_current_month(data_dir: Path, capsys
 
 
 def test_month_credits_a_span_filed_in_that_month(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    seed(ledger, span(T0, T0 + 90 * M, "assets"))
+    seed(ledger, span(T0, T0 + 90 * MINUTE, "assets"))
     assert run(capsys, "month", "2026-08") == [["assets", "1:30"], ["work", "1:30"], ["total", "1:30"]]
     assert run(capsys, "month", "2026-07") == [["work", "0:00"], ["total", "0:00"]]
 
@@ -264,7 +267,7 @@ def test_month_reads_the_previous_file_for_a_span_crossing_into_its_first_local_
     ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
     last_of_july_utc = datetime(2026, 7, 31, 21, 30, tzinfo=UTC)
-    seed(ledger, span(last_of_july_utc, last_of_july_utc + 60 * M, "assets"))
+    seed(ledger, span(last_of_july_utc, last_of_july_utc + 60 * MINUTE, "assets"))
     assert [path.name for path in ledger.glob("*.jsonl")] == ["2026-07.jsonl"]
     assert run(capsys, "month", "2026-08") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
     assert run(capsys, "month", "2026-07") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
@@ -278,12 +281,12 @@ def test_present_minutes_with_no_signal_land_on_personal_other(
 
 
 def test_idle_stops_credit_and_active_resumes_it(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    seed(ledger, *present(T0, 15), mark(T0 + 5 * M, "idle"), mark(T0 + 8 * M, "active"))
+    seed(ledger, *present(T0, 15), mark(T0 + 5 * MINUTE, "idle"), mark(T0 + 8 * MINUTE, "active"))
     assert run(capsys, "month", "2026-08") == [["other", "0:12"], ["work", "0:00"], ["total", "0:12"]]
 
 
 def test_minutes_without_a_recent_poll_are_absent(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    seed(ledger, *polls(T0, 1), mark(T0 + 10 * M, "idle"))
+    seed(ledger, *polls(T0, 1), mark(T0 + 10 * MINUTE, "idle"))
     assert run(capsys, "month", "2026-08") == [["other", "0:02"], ["work", "0:00"], ["total", "0:02"]]
 
 
@@ -343,8 +346,8 @@ def test_active_resumes_credit_with_a_still_valid_lease(
         ledger,
         *present(T0, 15),
         beat(T0, f"{home}/code/work-org/assets"),
-        mark(T0 + 5 * M, "idle"),
-        mark(T0 + 8 * M, "active"),
+        mark(T0 + 5 * MINUTE, "idle"),
+        mark(T0 + 8 * MINUTE, "active"),
     )
     assert run(capsys, "month", "2026-08") == [
         ["assets", "0:07"],
@@ -362,9 +365,9 @@ def test_beats_while_idle_book_nothing_but_renew_the_lease(
         ledger,
         *present(T0, 15),
         beat(T0, repo),
-        mark(T0 + 5 * M, "idle"),
-        beat(T0 + 6 * M, repo),
-        mark(T0 + 8 * M, "active"),
+        mark(T0 + 5 * MINUTE, "idle"),
+        beat(T0 + 6 * MINUTE, repo),
+        mark(T0 + 8 * MINUTE, "active"),
     )
     assert run(capsys, "month", "2026-08") == [["assets", "0:12"], ["work", "0:12"], ["total", "0:12"]]
 
@@ -380,9 +383,9 @@ def test_a_focused_kitty_cwd_leases_its_repo_for_focus_lease_min(
     seed(
         ledger,
         mark(T0, "active"),
-        *polls(T0, 5, cls="kitty", title="~/code/work-org/assets", cwd=f"{home}/code/work-org/assets"),
-        *polls(T0 + 5 * M, 5),
-        mark(T0 + 10 * M, "idle"),
+        *polls(T0, 5, window_class="kitty", title="~/code/work-org/assets", cwd=f"{home}/code/work-org/assets"),
+        *polls(T0 + 5 * MINUTE, 5),
+        mark(T0 + 10 * MINUTE, "idle"),
     )
     assert run(capsys, "month", "2026-08") == [
         ["assets", "0:05"],
@@ -421,7 +424,10 @@ def test_the_ambient_bucket_is_credited_only_while_no_repo_holds_a_lease(
 def test_a_poll_resolves_its_cwd_by_the_longest_root_then_its_title_by_the_first_rule(
     home: Path, ledger: Path, capsys: pytest.CaptureFixture[str], cwd: str | None, title: str, kind: str, project: str
 ) -> None:
-    seed(ledger, *present(T0, 5, cls="kitty" if cwd else "vivaldi", title=title, cwd=f"{home}/{cwd}" if cwd else None))
+    seed(
+        ledger,
+        *present(T0, 5, window_class="kitty" if cwd else "vivaldi", title=title, cwd=f"{home}/{cwd}" if cwd else None),
+    )
     work = "0:05" if kind == "work" else "0:00"
     assert run(capsys, "month", "2026-08") == [[project, "0:05"], ["work", work], ["total", "0:05"]]
 
@@ -430,13 +436,18 @@ def test_a_lease_taken_before_the_range_is_held_at_its_start(
     home: Path, ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
     august = datetime(2026, 7, 31, 22, 0, tzinfo=UTC)
-    seed(ledger, beat(august - 5 * M, f"{home}/code/work-org/assets"), *present(august, 5))
+    seed(ledger, beat(august - 5 * MINUTE, f"{home}/code/work-org/assets"), *present(august, 5))
     assert [path.name for path in ledger.glob("*.jsonl")] == ["2026-07.jsonl"]
     assert run(capsys, "month", "2026-08") == [["assets", "0:05"], ["work", "0:05"], ["total", "0:05"]]
 
 
 def test_a_span_overrides_beats_wholesale(home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    seed(ledger, *present(T0, 10), beat(T0, f"{home}/code/work-org/assets"), span(T0 + 5 * M, T0 + 10 * M, "meeting"))
+    seed(
+        ledger,
+        *present(T0, 10),
+        beat(T0, f"{home}/code/work-org/assets"),
+        span(T0 + 5 * MINUTE, T0 + 10 * MINUTE, "meeting"),
+    )
     assert run(capsys, "month", "2026-08") == [
         ["assets", "0:05"],
         ["meeting", "0:05"],
@@ -450,6 +461,6 @@ def test_an_off_span_removes_present_minutes(home: Path, ledger: Path, capsys: p
         ledger,
         *present(T0, 10),
         beat(T0, f"{home}/code/work-org/assets"),
-        span(T0 + 5 * M, T0 + 10 * M, "lunch", "off"),
+        span(T0 + 5 * MINUTE, T0 + 10 * MINUTE, "lunch", "off"),
     )
     assert run(capsys, "month", "2026-08") == [["assets", "0:05"], ["work", "0:05"], ["total", "0:05"]]
