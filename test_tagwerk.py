@@ -56,9 +56,13 @@ def berlin() -> Iterator[None]:
     time.tzset()
 
 
-def run(capsys: pytest.CaptureFixture[str], *argv: str) -> list[list[str]]:
+def lines(capsys: pytest.CaptureFixture[str], *argv: str) -> list[str]:
     assert tagwerk.main(list(argv)) == 0
-    return [line.split() for line in capsys.readouterr().out.splitlines()]
+    return capsys.readouterr().out.splitlines()
+
+
+def run(capsys: pytest.CaptureFixture[str], *argv: str) -> list[list[str]]:
+    return [line.split() for line in lines(capsys, *argv)]
 
 
 def stamp(moment: datetime) -> str:
@@ -99,7 +103,8 @@ def seed(ledger: Path, *events: Event) -> None:
 
 
 @pytest.mark.parametrize(
-    "command", [[], ["fix"], ["today"], ["month"], ["focus"], ["import-timew"], ["beat"], ["idle"], ["active"]]
+    "command",
+    [[], ["fix"], ["today"], ["month"], ["invoice"], ["focus"], ["import-timew"], ["beat"], ["idle"], ["active"]],
 )
 def test_help_exits_zero_and_prints_usage(capsys: pytest.CaptureFixture[str], command: list[str]) -> None:
     with pytest.raises(SystemExit) as raised:
@@ -278,6 +283,57 @@ def test_month_reads_the_previous_file_for_a_span_crossing_into_its_first_local_
     assert [path.name for path in ledger.glob("*.jsonl")] == ["2026-07.jsonl"]
     assert run(capsys, "month", "2026-08") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
     assert run(capsys, "month", "2026-07") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
+
+
+def test_invoice_rows_are_quarter_hours_summing_to_the_rounded_total(
+    ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(
+        ledger,
+        span(T0, T0 + 68 * MINUTE, "hermes"),
+        span(T0 + 120 * MINUTE, T0 + 253 * MINUTE, "assets"),
+        span(T0 + 300 * MINUTE, T0 + 342 * MINUTE, "nexus"),
+    )
+    assert lines(capsys, "invoice", "2026-08") == [
+        "| Project | Hours |",
+        "| --- | ---: |",
+        "| assets | 2.25 |",
+        "| hermes | 1.00 |",
+        "| nexus | 0.75 |",
+        "| **Total** | **4.00** |",
+    ]
+
+
+def test_invoice_excludes_personal_minutes(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    run(capsys, "fix", "10:00", "11:00", "auberge", "--personal")
+    month = datetime.now(UTC).astimezone().strftime("%Y-%m")
+    assert lines(capsys, "invoice", month) == [
+        "| Project | Hours |",
+        "| --- | ---: |",
+        "| assets | 1.00 |",
+        "| **Total** | **1.00** |",
+    ]
+
+
+def test_invoice_for_an_empty_month_prints_the_header_and_a_zero_total(
+    ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert lines(capsys, "invoice", "2026-08") == ["| Project | Hours |", "| --- | ---: |", "| **Total** | **0.00** |"]
+
+
+def test_invoice_rounds_the_true_total_not_the_per_project_minutes(
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(ledger, *present(T0, 7), beat(T0, f"{home}/code/work-org/assets"), beat(T0, f"{home}/code/work-org/checkout"))
+    assert run(capsys, "month", "2026-08")[-2:] == [["work", "0:07"], ["total", "0:07"]]
+    assert lines(capsys, "invoice", "2026-08") == [
+        "| Project | Hours |",
+        "| --- | ---: |",
+        "| assets | 0.00 |",
+        "| checkout | 0.00 |",
+        "| **Total** | **0.00** |",
+    ]
 
 
 def test_present_minutes_with_no_signal_land_on_personal_other(
