@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 import tomllib
 from collections import defaultdict
@@ -17,10 +18,23 @@ class Bucket(NamedTuple):
     kind: str
     project: str
 
+    @property
+    def is_repo(self) -> bool:
+        return self.project not in ("general", "other")
+
+
+OTHER = Bucket("personal", "other")
+TitleRule = tuple[re.Pattern[str], str, str | None]
+
 
 @dataclass(frozen=True)
 class Config:
     data_dir: Path
+    poll_stale: timedelta
+    beat_lease: timedelta
+    focus_lease: timedelta
+    roots: list[tuple[Path, str]]
+    titles: list[TitleRule]
 
 
 def default_config_path() -> Path:
@@ -36,7 +50,38 @@ def load_config(path: Path) -> Config:
         raise SystemExit(f"config file not found: {path}")
     raw = tomllib.loads(path.read_text())
     data_dir = Path(os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir") or default_data_dir()).expanduser()
-    return Config(data_dir=data_dir)
+    roots = [(Path(root).expanduser(), kind) for root, kind in raw.get("roots", {}).items()]
+    roots.sort(key=lambda root: len(root[0].parts), reverse=True)
+    return Config(
+        data_dir=data_dir,
+        poll_stale=timedelta(minutes=raw.get("poll_stale_min", 2)),
+        beat_lease=timedelta(minutes=raw.get("beat_lease_min", 10)),
+        focus_lease=timedelta(minutes=raw.get("focus_lease_min", 1)),
+        roots=roots,
+        titles=[(re.compile(rule["pattern"]), rule["kind"], rule.get("project")) for rule in raw.get("title", [])],
+    )
+
+
+def resolve_cwd(config: Config, cwd: str | None) -> Bucket | None:
+    if cwd is None:
+        return None
+    path = Path(cwd)
+    for root, kind in config.roots:
+        if path.is_relative_to(root):
+            below = path.relative_to(root).parts
+            # ponytail: the project ends at the first dot, so assets.8467 is assets; a dotted repo name needs its own root
+            return Bucket(kind, below[0].split(".")[0] if below else "general")
+    return None
+
+
+def resolve_title(config: Config, title: str | None) -> Bucket | None:
+    if title is None:
+        return None
+    for pattern, kind, project in config.titles:
+        match = pattern.search(title)
+        if match:
+            return Bucket(kind, project or match.group("project"))
+    return None
 
 
 def format_utc(moment: datetime) -> str:
@@ -67,6 +112,10 @@ def read_ledger_file(path: Path) -> list[Event]:
     return events
 
 
+def next_month(first: date) -> date:
+    return (first + timedelta(days=32)).replace(day=1)
+
+
 def read_events(config: Config, start: datetime, end: datetime) -> list[Event]:
     events: list[Event] = []
     month = (start - timedelta(days=1)).date().replace(day=1)
@@ -74,11 +123,11 @@ def read_events(config: Config, start: datetime, end: datetime) -> list[Event]:
         path = month_file(config, month)
         if path.is_file():
             events += read_ledger_file(path)
-        month = (month + timedelta(days=32)).replace(day=1)
+        month = next_month(month)
     return sorted(events, key=lambda event: event["ts"])
 
 
-def attribute(events: list[Event], start: datetime, end: datetime) -> dict[Bucket, float]:
+def attribute(config: Config, events: list[Event], start: datetime, end: datetime) -> dict[Bucket, float]:
     spans = [
         (
             datetime.fromisoformat(event["start"]),
@@ -89,16 +138,45 @@ def attribute(events: list[Event], start: datetime, end: datetime) -> dict[Bucke
         if event["ev"] == "span"
     ]
     spans.reverse()
+    stream = [(datetime.fromisoformat(event["ts"]), event) for event in events if event["ev"] != "span"]
     minutes: defaultdict[Bucket, float] = defaultdict(float)
+    idle = False
+    last_poll: datetime | None = None
+    ambient: Bucket | None = None
+    leases: dict[Bucket, datetime] = {}
+    applied = 0
     minute = start
     # ponytail: O(minutes x spans) scan per report; a month is 43k minutes, fine for years of data
     while minute < end:
-        for span_start, span_end, bucket in spans:
-            if span_start <= minute < span_end:
-                # ponytail: the latest span covering a minute wins wholesale; no partial merge with sensor minutes
-                if bucket.kind != "off":
-                    minutes[bucket] += 1.0
-                break
+        while applied < len(stream) and stream[applied][0] <= minute:
+            ts, event = stream[applied]
+            applied += 1
+            if event["ev"] == "idle":
+                idle = True
+            elif event["ev"] == "active":
+                idle = False
+            elif event["ev"] == "focus":
+                last_poll = ts
+                bucket = resolve_cwd(config, event["cwd"]) or resolve_title(config, event["title"])
+                if bucket is not None and bucket.is_repo:
+                    leases[bucket] = ts + config.focus_lease
+                ambient = bucket if bucket is not None and not bucket.is_repo else None
+            elif event["ev"] == "beat":
+                bucket = resolve_cwd(config, event["cwd"])
+                if bucket is not None and bucket.is_repo:
+                    leases[bucket] = ts + config.beat_lease
+        leases = {bucket: expiry for bucket, expiry in leases.items() if expiry > minute}
+        # ponytail: the latest span covering a minute wins wholesale; no partial merge with sensor minutes
+        booked = next((bucket for span_start, span_end, bucket in spans if span_start <= minute < span_end), None)
+        if booked is not None:
+            if booked.kind != "off":
+                minutes[booked] += 1.0
+        elif not idle and last_poll is not None and minute - last_poll < config.poll_stale:
+            if leases:
+                for bucket in leases:
+                    minutes[bucket] += 1 / len(leases)
+            else:
+                minutes[ambient or OTHER] += 1.0
         minute += timedelta(minutes=1)
     return minutes
 
@@ -107,10 +185,20 @@ def local_today() -> date:
     return datetime.now(UTC).astimezone().date()
 
 
+def local_range(start: date, stop: date) -> tuple[datetime, datetime]:
+    return datetime.combine(start, time.min).astimezone(UTC), datetime.combine(stop, time.min).astimezone(UTC)
+
+
 def local_day(day: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(day, time.min).astimezone(UTC)
-    end = datetime.combine(day + timedelta(days=1), time.min).astimezone(UTC)
-    return start, end
+    return local_range(day, day + timedelta(days=1))
+
+
+def local_month(first: date) -> tuple[datetime, datetime]:
+    return local_range(first, next_month(first))
+
+
+def parse_month(text: str) -> date:
+    return date.fromisoformat(f"{text}-01")
 
 
 def parse_local(text: str) -> datetime:
@@ -149,9 +237,8 @@ def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: 
     append_event(config, span)
 
 
-def cmd_today(config: Config) -> None:
-    start, end = local_day(local_today())
-    print(render_table(attribute(read_events(config, start, end), start, end)))
+def report(config: Config, start: datetime, end: datetime) -> None:
+    print(render_table(attribute(config, read_events(config, start, end), start, end)))
 
 
 def main(argv: list[str]) -> int:
@@ -170,12 +257,16 @@ def main(argv: list[str]) -> int:
     )
     fix.set_defaults(kind="work")
     commands.add_parser("today", help="hours per project for the local day")
+    month = commands.add_parser("month", help="hours per project for a calendar month")
+    month.add_argument("month", nargs="?", type=parse_month, default=None, help="YYYY-MM, default the current month")
     args = parser.parse_args(argv)
     config = load_config(Path(os.environ.get("TAGWERK_CONFIG") or default_config_path()).expanduser())
     if args.command == "fix":
         cmd_fix(config, args.start, args.end, args.project, args.kind)
+    elif args.command == "month":
+        report(config, *local_month(args.month or local_today().replace(day=1)))
     else:
-        cmd_today(config)
+        report(config, *local_day(local_today()))
     return 0
 
 
