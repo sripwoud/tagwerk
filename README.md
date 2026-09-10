@@ -19,14 +19,15 @@ Target: Omarchy 4 with Hyprland and kitty. The [AUR package](https://aur.archlin
 
 ```sh
 paru -S tagwerk-git
-install -Dm644 /usr/share/tagwerk/config.example.toml ~/.config/tagwerk/config.toml && $EDITOR ~/.config/tagwerk/config.toml
-install -Dm644 /usr/share/tagwerk/hypridle.conf ~/.config/hypr/hypridle.conf
-systemctl --user enable --now hypridle.service tagwerk-focus.service
+tagwerk init && $EDITOR ~/.config/tagwerk/config.toml
+systemctl --user enable --now tagwerk-idle.service tagwerk-focus.service
 ```
 
-In the config, point `[roots]` at your work org's clone directory as `work` and at your personal code directory as `personal`. Make the `[[title]]` patterns match your org's GitHub titles and chat apps. The longest root wins. The project is the first directory below the root, cut at its first dot, so `assets.8467` and `assets` are one project. Every other key ships with its default; the comments in `config.example.toml` explain each one.
+Any AUR helper works: `yay -S tagwerk-git`. Without one, `git clone https://aur.archlinux.org/tagwerk-git.git && cd tagwerk-git && makepkg -si` builds the package and installs it through pacman.
 
-Omarchy's shell already runs the screensaver at 150 s and the lock at 300 s, so `hypridle.conf` only feeds the ledger. Its listener fires at the same 150 s without input and no minutes fall between screensaver and lock. The `hypridle` package ships `hypridle.service`, bound to the graphical session.
+In the config, point `[roots]` at your work org's clone directory as `work` and at your personal code directory as `personal`. Make the `[[title]]` patterns match your org's GitHub titles and chat apps. The longest root wins. The project is the first directory below the root, cut at its first dot, so `assets.8467` and `assets` are one project. Every other key ships with its default; the comments in the file `tagwerk init` writes explain each one.
+
+Omarchy's shell already runs the screensaver at 150 s and the lock at 300 s, so `tagwerk-idle.service` runs hypridle on the packaged `/usr/share/tagwerk/hypridle.conf`, which only feeds the ledger. Its listener fires at the same 150 s without input and no minutes fall between screensaver and lock. If you already run `hypridle.service` with your own config, add its `tagwerk idle` and `tagwerk active` lines there and skip `tagwerk-idle.service`.
 
 The poller reads the kitty cwd over kitty remote control on Omarchy's per-pid socket. `/etc/xdg/kitty/kitty.conf` already sets `allow_remote_control socket-only` and `listen_on`; a user `kitty.conf` must not override them. A kitty started outside Omarchy's config has no socket; its cwd is written as `null` and the poller keeps running.
 
@@ -55,7 +56,7 @@ pi runs under Bun with its own `PATH`, so the extension spawns `/usr/bin/tagwerk
 After 10 minutes with a kitty window focused for part of them:
 
 ```sh
-systemctl --user status hypridle.service tagwerk-focus.service
+systemctl --user status tagwerk-idle.service tagwerk-focus.service
 tail -n 5 ~/.local/share/tagwerk/$(date -u +%Y-%m).jsonl
 tagwerk today
 ```
@@ -86,6 +87,7 @@ Times are local; `HH:MM` means today.
 
 | Command                                             | Does                                                                                                                         |
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `tagwerk init`                                      | write the commented config template to `~/.config/tagwerk/config.toml`; refuses to overwrite                                 |
 | `tagwerk today`                                     | hours per project for the local day, work subtotal, total                                                                    |
 | `tagwerk week [-n N]`                               | one bar per day, Monday to Sunday, N weeks back; cap marker, red over the day cap or on a weekend with minutes               |
 | `tagwerk month [YYYY-MM]`                           | one bar per ISO week, then hours per project; default the current month                                                      |
@@ -112,7 +114,7 @@ tagwerk invoice 2026-08
 - An agent beat leases its repo for 10 minutes; a focused kitty cwd or a GitHub repo title leases for 1 minute. A leased repo is credited while an unrelated window is focused, such as a browser tab during a long Claude turn. Two leased repos split each minute evenly (ADR-0003).
 - Beats while idle book nothing. An unattended overnight agent adds no hours; credit resumes on the still-valid lease when you return.
 - With no lease the focused window decides. A kitty shell sitting at a root books that kind's `general`; a work-pattern title (Slack, Zoom, Meet, your org) books `work/general`; anything else books `personal/other`.
-- Idle inhibitors are honoured, so a video call with your hands off the keyboard stays present. In exchange an abandoned video also stays present and books `personal/other`; that inflates the chart, never the invoice. Flip `ignore_dbus_inhibit = true` in `~/.config/hypr/hypridle.conf` if the chart looks inflated.
+- Idle inhibitors are honoured, so a video call with your hands off the keyboard stays present. In exchange an abandoned video also stays present and books `personal/other`; that inflates the chart, never the invoice. If the chart looks inflated, copy `/usr/share/tagwerk/hypridle.conf`, set `ignore_dbus_inhibit = true` in the copy, and point `--config` at it with `systemctl --user edit tagwerk-idle.service`.
 - A span overrides the sensors for its whole range, no partial merge, and the latest appended span wins on overlap. Nothing in the ledger is ever edited (ADR-0002).
 
 ## Known ceilings
