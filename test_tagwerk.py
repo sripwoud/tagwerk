@@ -66,7 +66,6 @@ def test_fix_appends_one_utc_span_line_to_the_utc_month_file(
 ) -> None:
     run(capsys, "fix", "09:00", "10:30", "assets")
     [ledger] = data_dir.glob("*.jsonl")
-    assert ledger.name == f"{datetime.now(UTC):%Y-%m}.jsonl"
     [line] = ledger.read_text().splitlines()
     span = json.loads(line)
     assert {key: span[key] for key in ("ev", "kind", "project", "src")} == {
@@ -79,6 +78,14 @@ def test_fix_appends_one_utc_span_line_to_the_utc_month_file(
     start, end = datetime.fromisoformat(span["start"]), datetime.fromisoformat(span["end"])
     assert end - start == timedelta(minutes=90)
     assert start.astimezone().strftime("%H:%M") == "09:00"
+    assert ledger.name == f"{start:%Y-%m}.jsonl"
+
+
+def test_fix_for_a_past_month_is_filed_under_that_month(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    past = datetime.now(UTC).astimezone().date() - timedelta(days=40)
+    run(capsys, "fix", f"{past}T12:00", f"{past}T13:00", "assets")
+    [ledger] = data_dir.glob("*.jsonl")
+    assert ledger.name == f"{past:%Y-%m}.jsonl"
 
 
 def test_latest_appended_span_wins_on_overlap(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:

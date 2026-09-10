@@ -53,8 +53,9 @@ def month_file(config: Config, day: date) -> Path:
 def append_event(config: Config, event: Event) -> None:
     now = datetime.now(UTC)
     event["ts"] = format_utc(now)
+    filed = datetime.fromisoformat(event["start"]) if event["ev"] == "span" else now
     config.data_dir.mkdir(parents=True, exist_ok=True)
-    with month_file(config, now).open("a") as ledger:
+    with month_file(config, filed).open("a") as ledger:
         ledger.write(json.dumps(event) + "\n")
 
 
