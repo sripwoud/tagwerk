@@ -769,14 +769,9 @@ def test_import_timew_fails_on_a_missing_file_naming_it(data_dir: Path, tmp_path
 
 
 def test_import_timew_runs_timew_export_without_a_file(
-    data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    data_dir: Path, fake_bin: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    export = timew_export(
-        tmp_path / "export.json", [{"start": "20260303T073000Z", "end": "20260303T080000Z", "tags": ["acme"]}]
-    )
-    fake = tmp_path / "bin" / "timew"
-    fake.parent.mkdir()
-    fake.write_text(f'#!/bin/sh\n[ "$1" = export ] && cat "{export}"\n')
-    fake.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{fake.parent}:{os.environ['PATH']}")
+    export = json.dumps([{"start": "20260303T073000Z", "end": "20260303T080000Z", "tags": ["acme"]}])
+    args = fake(fake_bin, "timew", export)
     assert run(capsys, "import-timew", "--work-tag", "acme") == [["1"]]
+    assert args.read_text() == "export\n"
