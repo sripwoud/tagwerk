@@ -1,0 +1,23 @@
+name: aur
+permissions:
+  contents: read
+on:
+  push:
+    branches: [master]
+    paths: [contrib/aur/**]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: KSXGitHub/github-actions-deploy-aur@084b0d9b15415bf9cdb65d44dad1efe37a354050 # v4.2.0
+        with:
+          pkgname: tagwerk-git
+          pkgbuild: contrib/aur/PKGBUILD
+          assets: contrib/aur/tagwerk-git.install
+          test: true
+          commit_username: sripwoud
+          commit_email: me@sripwoud.xyz
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: ${{ github.event.head_commit.message }}

@@ -68,9 +68,43 @@ def default_data_dir() -> Path:
     return Path(os.environ.get("XDG_DATA_HOME", "~/.local/share")).expanduser() / "tagwerk"
 
 
+CONFIG_TEMPLATE = r"""data_dir = "~/.local/share/tagwerk" # TAGWERK_DATA_DIR overrides this
+poll_sec = 15
+poll_stale_min = 2 # a poll this recent proves the machine was on
+beat_lease_min = 10 # an agent beat leases its repo this long
+beat_throttle_sec = 60 # an agent appends at most one beat per cwd this often
+focus_lease_min = 1 # a focused kitty cwd or GitHub repo title leases its repo this long
+kitty_socket = "unix:${XDG_RUNTIME_DIR}/omarchy-kitty-{pid}" # Omarchy default; {pid} is the focused kitty's pid
+day_cap_h = 8 # week labels turn red above this; caps change colours, never numbers
+week_cap_h = 40 # the week footer and month week bars turn red above this
+
+[roots] # longest match wins; the project is the first directory below the root, cut at its first dot
+"~/code/work-org" = "work"
+"~/memories/work" = "work"
+"~/code" = "personal"
+
+[[title]] # first match wins; consulted only when the cwd resolves to nothing
+pattern = 'work-org/(?P<project>[\w.-]+)'
+kind = "work"
+
+[[title]]
+pattern = '(?i)slack|work-org|zoom|meet\.google|bitbucket'
+kind = "work"
+project = "general"
+"""
+
+
+def cmd_init(path: Path) -> None:
+    if path.exists():
+        raise SystemExit(f"config already exists: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(CONFIG_TEMPLATE)
+    print(f"wrote {path}")
+
+
 def load_config(path: Path) -> Config:
     if not path.is_file():
-        raise SystemExit(f"config file not found: {path}")
+        raise SystemExit(f"config file not found: {path}; run tagwerk init")
     raw = tomllib.loads(path.read_text())
     data_dir = Path(os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir") or default_data_dir()).expanduser()
     roots = [(Path(root).expanduser(), kind) for root, kind in raw.get("roots", {}).items()]
@@ -473,6 +507,7 @@ def cmd_month(config: Config, first: date) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="tagwerk", description="Passive work-hours ledger for one Linux desktop.")
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("init", help="write the commented config template; refuses to overwrite an existing one")
     fix = commands.add_parser("fix", help="book a span by hand; it overrides the sensors for its range")
     fix.add_argument("start", type=parse_local, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
     fix.add_argument("end", type=parse_local, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
@@ -507,7 +542,11 @@ def main(argv: list[str]) -> int:
     commands.add_parser("idle", help="mark the start of idle, from the hypridle listener or before sleep")
     commands.add_parser("active", help="mark the end of idle, from the hypridle listener or after sleep")
     args = parser.parse_args(argv)
-    config = load_config(Path(os.environ.get("TAGWERK_CONFIG") or default_config_path()).expanduser())
+    config_path = Path(os.environ.get("TAGWERK_CONFIG") or default_config_path()).expanduser()
+    if args.command == "init":
+        cmd_init(config_path)
+        return 0
+    config = load_config(config_path)
     if args.command == "fix":
         cmd_fix(config, args.start, args.end, args.project, args.kind)
     elif args.command == "beat":

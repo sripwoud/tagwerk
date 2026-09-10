@@ -1,11 +1,11 @@
 [Unit]
-Description=tagwerk focus poller
+Description=tagwerk idle marks via hypridle
 PartOf=graphical-session.target
 After=graphical-session.target
 ConditionEnvironment=HYPRLAND_INSTANCE_SIGNATURE
 
 [Service]
-ExecStart=/usr/bin/tagwerk focus
+ExecStart=/usr/bin/hypridle --config /usr/share/tagwerk/hypridle.conf
 Restart=on-failure
 RestartSec=5
 

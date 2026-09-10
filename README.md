@@ -15,53 +15,61 @@ Vocabulary: `CONTEXT.md`. Decisions with their trade-offs: `docs/adr/`. Spec and
 
 ## Install
 
-Target: Omarchy 4 with Hyprland and kitty, the Arch system Python 3.13 or later, `hypridle` from `extra`. No runtime dependencies (ADR-0004), so the install is a symlink. `~/.local/bin` is on the user services' `PATH`, which lets hypridle call `tagwerk` by name.
+Target: Omarchy 4 with Hyprland and kitty. The [AUR package](https://aur.archlinux.org/packages/tagwerk-git) pulls `hypridle` and the system Python; tagwerk itself has no runtime dependencies (ADR-0004) and tracks master (ADR-0005).
 
 ```sh
-omarchy pkg add hypridle
-git clone https://github.com/sripwoud/tagwerk ~/code/tagwerk
-ln -s ~/code/tagwerk/tagwerk.py ~/.local/bin/tagwerk
-install -Dm644 ~/code/tagwerk/config.example.toml ~/.config/tagwerk/config.toml
-$EDITOR ~/.config/tagwerk/config.toml
-install -Dm644 ~/code/tagwerk/contrib/hypridle.conf ~/.config/hypr/hypridle.conf
-install -Dm644 ~/code/tagwerk/contrib/tagwerk-focus.service ~/.config/systemd/user/tagwerk-focus.service
-systemctl --user daemon-reload
-systemctl --user enable --now hypridle.service tagwerk-focus.service
-chezmoi diff ~/.config/kitty/kitty.conf
-ln -s ~/code/tagwerk/contrib/pi/tagwerk.ts ~/.pi/agent/extensions/tagwerk.ts
-jq -s '.[1].hooks as $add | .[0] | .hooks = reduce ($add | keys[]) as $k (.hooks // {}; .[$k] += $add[$k])' \
-  ~/.claude/settings.json ~/code/tagwerk/contrib/claude-hooks.json > ~/.claude/settings.json.new \
-  && mv ~/.claude/settings.json.new ~/.claude/settings.json
-tagwerk import-timew --work-tag TAG
+paru -S tagwerk-git
+tagwerk init && $EDITOR ~/.config/tagwerk/config.toml
+systemctl --user enable --now tagwerk-idle.service tagwerk-focus.service
 ```
 
-In the config, point `[roots]` at your work org's clone directory as `work` and at your personal code directory as `personal`. Make the `[[title]]` patterns match your org's GitHub titles and chat apps. The longest root wins. The project is the first directory below the root, cut at its first dot, so `assets.8467` and `assets` are one project. Every other key ships with its default; the comments in `config.example.toml` explain each one.
+Any AUR helper works: `yay -S tagwerk-git`. Without one, `git clone https://aur.archlinux.org/tagwerk-git.git && cd tagwerk-git && makepkg -si` builds the package and installs it through pacman.
 
-Omarchy's shell already runs the screensaver at 150 s and the lock at 300 s, so `hypridle.conf` only feeds the ledger. Its listener fires at the same 150 s without input and no minutes fall between screensaver and lock. The `hypridle` package ships `hypridle.service`, bound to the graphical session.
+In the config, point `[roots]` at your work org's clone directory as `work` and at your personal code directory as `personal`. Make the `[[title]]` patterns match your org's GitHub titles and chat apps. The longest root wins. The project is the first directory below the root, cut at its first dot, so `assets.8467` and `assets` are one project. Every other key ships with its default; the comments in the file `tagwerk init` writes explain each one.
 
-The poller reads the kitty cwd over kitty remote control on Omarchy's per-pid socket. `/etc/xdg/kitty/kitty.conf` already sets `allow_remote_control socket-only` and `listen_on`, so a user `kitty.conf` needs neither. If `chezmoi diff` shows an `allow_remote_control` line that differs between source and target, make them agree: `chezmoi add ~/.config/kitty/kitty.conf` keeps the live file, `chezmoi apply ~/.config/kitty/kitty.conf` keeps the source. Either works for tagwerk. A kitty started outside Omarchy's config has no socket; its cwd is written as `null` and the poller keeps running.
+Omarchy's shell already runs the screensaver at 150 s and the lock at 300 s, so `tagwerk-idle.service` runs hypridle on the packaged `/usr/share/tagwerk/hypridle.conf`, which only feeds the ledger. Its listener fires at the same 150 s without input and no minutes fall between screensaver and lock. If you already run `hypridle.service` with your own config, add its `tagwerk idle` and `tagwerk active` lines there and skip `tagwerk-idle.service`.
 
-`claude-hooks.json` adds `SessionStart`, `UserPromptSubmit`, `PostToolUse` and `Stop` hooks with 5 s timeouts, and the jq line appends them to the hooks the settings already hold. `PostToolUse` is not optional: without it a 20 min agentic turn loses minutes 10 to 20 once the beat lease runs out.
+The poller reads the kitty cwd over kitty remote control on Omarchy's per-pid socket. `/etc/xdg/kitty/kitty.conf` already sets `allow_remote_control socket-only` and `listen_on`; a user `kitty.conf` must not override them. A kitty started outside Omarchy's config has no socket; its cwd is written as `null` and the poller keeps running.
 
-pi runs under Bun with its own `PATH`, so the extension spawns `~/.local/bin/tagwerk` by absolute path. Restart pi to load it.
+## Agent hooks
 
-`TAG` is the timewarrior tag that marked an interval as work (`timew tags` lists them); intervals without it become `personal`. `project:<repo>` tags become the project, anything else lands in `general`. The import reads `timew export` and refuses to run twice, so run it before uninstalling timew.
+Claude Code:
 
-`~/.config/hypr`, `~/.config/kitty`, `~/.config/systemd/user` and `~/.claude/settings.json` are chezmoi-managed on the reference machine; `chezmoi add` each file you changed.
+```sh
+jq -s '.[1].hooks as $add | .[0] | .hooks = reduce ($add | keys[]) as $k (.hooks // {}; .[$k] = ((.[$k] // []) + $add[$k] | unique))' \
+  ~/.claude/settings.json /usr/share/tagwerk/claude-hooks.json > ~/.claude/settings.json.new \
+  && mv ~/.claude/settings.json.new ~/.claude/settings.json
+```
+
+`claude-hooks.json` adds `SessionStart`, `UserPromptSubmit`, `PostToolUse` and `Stop` hooks with 5 s timeouts. The jq line appends them to the hooks the settings already hold and is safe to rerun. `PostToolUse` is not optional: without it a 20 min agentic turn loses minutes 10 to 20 once the beat lease runs out.
+
+pi:
+
+```sh
+ln -s /usr/share/tagwerk/pi/tagwerk.ts ~/.pi/agent/extensions/tagwerk.ts
+```
+
+pi runs under Bun with its own `PATH`, so the extension spawns `/usr/bin/tagwerk` by absolute path. Restart pi to load it.
 
 ## Verify
 
 After 10 minutes with a kitty window focused for part of them:
 
 ```sh
-systemctl --user status hypridle.service tagwerk-focus.service
+systemctl --user status tagwerk-idle.service tagwerk-focus.service
 tail -n 5 ~/.local/share/tagwerk/$(date -u +%Y-%m).jsonl
 tagwerk today
 ```
 
 Both units should be `active (running)`. The `focus` lines carry a path in `cwd` while kitty was focused and `null` otherwise, and `today` lists the repo you were in. Leave the machine for three minutes: an `idle` line appears, then `active` when you come back. Poller errors go to `journalctl --user -u tagwerk-focus.service`; systemd restarts it after 5 s.
 
-## Cleanup
+## Migrating from timewarrior
+
+```sh
+tagwerk import-timew --work-tag TAG
+```
+
+`TAG` is the timewarrior tag that marked an interval as work (`timew tags` lists them); intervals without it become `personal`. `project:<repo>` tags become the project, anything else lands in `general`. The import reads `timew export` and refuses to run twice, so run it before uninstalling timew.
 
 After a week of trusted numbers, retire the timewarrior setup:
 
@@ -79,6 +87,7 @@ Times are local; `HH:MM` means today.
 
 | Command                                             | Does                                                                                                                         |
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `tagwerk init`                                      | write the commented config template to `~/.config/tagwerk/config.toml`; refuses to overwrite                                 |
 | `tagwerk today`                                     | hours per project for the local day, work subtotal, total                                                                    |
 | `tagwerk week [-n N]`                               | one bar per day, Monday to Sunday, N weeks back; cap marker, red over the day cap or on a weekend with minutes               |
 | `tagwerk month [YYYY-MM]`                           | one bar per ISO week, then hours per project; default the current month                                                      |
@@ -105,7 +114,7 @@ tagwerk invoice 2026-08
 - An agent beat leases its repo for 10 minutes; a focused kitty cwd or a GitHub repo title leases for 1 minute. A leased repo is credited while an unrelated window is focused, such as a browser tab during a long Claude turn. Two leased repos split each minute evenly (ADR-0003).
 - Beats while idle book nothing. An unattended overnight agent adds no hours; credit resumes on the still-valid lease when you return.
 - With no lease the focused window decides. A kitty shell sitting at a root books that kind's `general`; a work-pattern title (Slack, Zoom, Meet, your org) books `work/general`; anything else books `personal/other`.
-- Idle inhibitors are honoured, so a video call with your hands off the keyboard stays present. In exchange an abandoned video also stays present and books `personal/other`; that inflates the chart, never the invoice. Flip `ignore_dbus_inhibit = true` in `~/.config/hypr/hypridle.conf` if the chart looks inflated.
+- Idle inhibitors are honoured, so a video call with your hands off the keyboard stays present. In exchange an abandoned video also stays present and books `personal/other`; that inflates the chart, never the invoice. If the chart looks inflated, copy `/usr/share/tagwerk/hypridle.conf`, set `ignore_dbus_inhibit = true` in the copy, and point `--config` at it with `systemctl --user edit tagwerk-idle.service`.
 - A span overrides the sensors for its whole range, no partial merge, and the latest appended span wins on overlap. Nothing in the ledger is ever edited (ADR-0002).
 
 ## Known ceilings
@@ -126,3 +135,5 @@ mise run test
 ```
 
 `check` runs dprint and ruff; `test` runs pytest, then mypy strict. Tests drive the CLI with `TAGWERK_CONFIG` and `TAGWERK_DATA_DIR` pointed at a temp directory and fake `hyprctl` and `kitten` executables on `PATH`; they never touch the real ledger.
+
+`contrib/aur/` holds the PKGBUILD. A push to master that touches it publishes `tagwerk-git` to the AUR; code changes reach users through `paru -Syu --devel` with no publish. The package builds master, so a renamed `contrib` file and its PKGBUILD line ship in the same PR. `makepkg -f --nodeps` inside `contrib/aur` builds it locally.
