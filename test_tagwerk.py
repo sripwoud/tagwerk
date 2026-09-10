@@ -108,7 +108,9 @@ def lines(ledger: Path) -> list[Event]:
     return [json.loads(line) for path in sorted(ledger.glob("*.jsonl")) for line in path.read_text().splitlines()]
 
 
-@pytest.mark.parametrize("command", [[], ["fix"], ["today"], ["month"], ["focus"], ["import-timew"], ["beat"]])
+@pytest.mark.parametrize(
+    "command", [[], ["fix"], ["today"], ["month"], ["focus"], ["import-timew"], ["beat"], ["idle"], ["active"]]
+)
 def test_help_exits_zero_and_prints_usage(capsys: pytest.CaptureFixture[str], command: list[str]) -> None:
     with pytest.raises(SystemExit) as raised:
         tagwerk.main([*command, "--help"])
@@ -863,3 +865,23 @@ def test_beat_throttle_is_read_from_the_config(
     run(capsys, "beat", "claude", "--cwd", f"{home}/code/work-org/assets")
     run(capsys, "beat", "claude", "--cwd", f"{home}/code/work-org/assets")
     assert len(lines(home / "data")) == 2
+
+
+@pytest.mark.parametrize("ev", ["idle", "active"])
+def test_idle_and_active_each_append_one_bare_mark(ledger: Path, capsys: pytest.CaptureFixture[str], ev: str) -> None:
+    run(capsys, ev)
+    [event] = lines(ledger)
+    assert event["ev"] == ev
+    assert set(event) == {"ts", "ev"}
+
+
+def test_hypridle_config_marks_sleep_and_one_150s_listener_without_locking() -> None:
+    text = (CONTRIB / "hypridle.conf").read_text()
+    assert text.count("listener {") == 1
+    assert "timeout = 150" in text
+    assert "before_sleep_cmd = tagwerk idle" in text
+    assert "after_sleep_cmd = tagwerk active" in text
+    assert "on-timeout = tagwerk idle" in text
+    assert "on-resume = tagwerk active" in text
+    assert "ignore_dbus_inhibit = false" in text
+    assert "lock_cmd" not in text

@@ -371,12 +371,16 @@ def main(argv: list[str]) -> int:
     beat.add_argument(
         "--cwd", help="the agent's working directory; default the cwd field of JSON on stdin, else the process cwd"
     )
+    commands.add_parser("idle", help="mark the user as away, from the hypridle listener or before sleep")
+    commands.add_parser("active", help="mark the user as back, from the hypridle listener or after sleep")
     args = parser.parse_args(argv)
     config = load_config(Path(os.environ.get("TAGWERK_CONFIG") or default_config_path()).expanduser())
     if args.command == "fix":
         cmd_fix(config, args.start, args.end, args.project, args.kind)
     elif args.command == "beat":
         cmd_beat(config, args.src, args.cwd)
+    elif args.command in ("idle", "active"):
+        append_event(config, {"ev": args.command})
     elif args.command == "month":
         report(config, *local_month(args.month or local_today().replace(day=1)))
     elif args.command == "focus":
