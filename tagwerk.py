@@ -248,6 +248,26 @@ def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: 
     append_span(config, start, end, kind, project, "fix")
 
 
+def cmd_import_timew(config: Config, work_tag: str, export: Path | None) -> None:
+    if any(
+        event["ev"] == "span" and event["src"] == "timew"
+        for path in config.data_dir.glob("*.jsonl")
+        for event in read_ledger_file(path)
+    ):
+        raise SystemExit(f"{config.data_dir} already holds timew spans; import-timew runs once")
+    intervals: list[dict[str, Any]] = json.loads(
+        export.read_text() if export else subprocess.check_output(["timew", "export"], text=True)
+    )
+    closed = [interval for interval in intervals if "end" in interval]
+    for interval in closed:
+        tags = interval.get("tags", [])
+        project = next((tag.removeprefix("project:") for tag in tags if tag.startswith("project:")), "general")
+        kind = "work" if work_tag in tags else "personal"
+        start, end = datetime.fromisoformat(interval["start"]), datetime.fromisoformat(interval["end"])
+        append_span(config, start, end, kind, project, "timew")
+    print(len(closed))
+
+
 def active_window() -> tuple[str, str, int] | None:
     output = subprocess.run(["hyprctl", "activewindow", "-j"], capture_output=True, text=True, check=True, timeout=2)
     window = json.loads(output.stdout)
@@ -323,6 +343,9 @@ def main(argv: list[str]) -> int:
     month.add_argument("month", nargs="?", type=parse_month, default=None, help="YYYY-MM, default the current month")
     focus = commands.add_parser("focus", help="poll the focused window and kitty cwd into the ledger")
     focus.add_argument("--once", action="store_true", help="one poll, then exit")
+    import_timew = commands.add_parser("import-timew", help="one-shot import of the timewarrior export as spans")
+    import_timew.add_argument("--work-tag", required=True, metavar="TAG", help="tag that marks an interval as work")
+    import_timew.add_argument("file", nargs="?", type=Path, help="timew export JSON; runs timew export when omitted")
     args = parser.parse_args(argv)
     config = load_config(Path(os.environ.get("TAGWERK_CONFIG") or default_config_path()).expanduser())
     if args.command == "fix":
@@ -331,6 +354,8 @@ def main(argv: list[str]) -> int:
         report(config, *local_month(args.month or local_today().replace(day=1)))
     elif args.command == "focus":
         cmd_focus(config, args.once)
+    elif args.command == "import-timew":
+        cmd_import_timew(config, args.work_tag, args.file)
     else:
         report(config, *local_day(local_today()))
     return 0
