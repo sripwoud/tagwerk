@@ -676,10 +676,9 @@ def test_focus_unit_restarts_on_failure_inside_the_graphical_session() -> None:
     assert unit["Unit"]["PartOf"] == unit["Install"]["WantedBy"] == "graphical-session.target"
 
 
-def timew_export(tmp_path: Path, intervals: list[dict[str, object]]) -> Path:
-    export = tmp_path / "export.json"
-    export.write_text(json.dumps(intervals))
-    return export
+def timew_export(path: Path, intervals: list[dict[str, object]]) -> Path:
+    path.write_text(json.dumps(intervals))
+    return path
 
 
 def timew_stamp(moment: datetime) -> str:
@@ -690,7 +689,7 @@ def test_import_timew_maps_tags_and_files_spans_under_their_utc_month(
     data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     export = timew_export(
-        tmp_path,
+        tmp_path / "export.json",
         [
             {"id": 4, "start": "20260303T073000Z", "end": "20260303T084842Z", "tags": ["acme", "project:x"]},
             {"id": 3, "start": "20260303T084842Z", "end": "20260303T090822Z", "tags": ["acme"]},
@@ -717,7 +716,7 @@ def test_imported_spans_are_reported_by_today(
 ) -> None:
     noon = datetime.now(UTC).astimezone().replace(hour=12, minute=0, second=0, microsecond=0)
     export = timew_export(
-        tmp_path,
+        tmp_path / "export.json",
         [
             {"start": timew_stamp(noon), "end": timew_stamp(noon + timedelta(hours=1)), "tags": ["acme", "project:x"]},
             {
@@ -733,7 +732,7 @@ def test_imported_spans_are_reported_by_today(
 
 def test_import_timew_skips_open_intervals(data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     export = timew_export(
-        tmp_path,
+        tmp_path / "export.json",
         [
             {"start": "20260715T073000Z", "end": "20260715T080000Z", "tags": ["project:x"]},
             {"start": "20260715T080000Z", "tags": ["project:x"]},
@@ -747,10 +746,14 @@ def test_import_timew_skips_open_intervals(data_dir: Path, tmp_path: Path, capsy
 def test_import_timew_refuses_a_second_run_and_appends_nothing(
     data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    march = timew_export(tmp_path, [{"start": "20260303T073000Z", "end": "20260303T080000Z", "tags": ["acme"]}])
+    march = timew_export(
+        tmp_path / "march.json", [{"start": "20260303T073000Z", "end": "20260303T080000Z", "tags": ["acme"]}]
+    )
     run(capsys, "import-timew", "--work-tag", "acme", str(march))
     before = {ledger.name: ledger.read_text() for ledger in data_dir.glob("*.jsonl")}
-    july = timew_export(tmp_path, [{"start": "20260715T073000Z", "end": "20260715T080000Z", "tags": ["acme"]}])
+    july = timew_export(
+        tmp_path / "july.json", [{"start": "20260715T073000Z", "end": "20260715T080000Z", "tags": ["acme"]}]
+    )
     with pytest.raises(SystemExit) as raised:
         tagwerk.main(["import-timew", "--work-tag", "acme", str(july)])
     assert raised.value.code
@@ -761,7 +764,9 @@ def test_import_timew_refuses_a_second_run_and_appends_nothing(
 def test_import_timew_runs_timew_export_without_a_file(
     data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    export = timew_export(tmp_path, [{"start": "20260303T073000Z", "end": "20260303T080000Z", "tags": ["acme"]}])
+    export = timew_export(
+        tmp_path / "export.json", [{"start": "20260303T073000Z", "end": "20260303T080000Z", "tags": ["acme"]}]
+    )
     fake = tmp_path / "bin" / "timew"
     fake.parent.mkdir()
     fake.write_text(f'#!/bin/sh\n[ "$1" = export ] && cat "{export}"\n')
