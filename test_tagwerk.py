@@ -71,6 +71,11 @@ def run(capsys: pytest.CaptureFixture[str], *argv: str) -> list[list[str]]:
     return [line.split() for line in lines(capsys, *argv)]
 
 
+def table(capsys: pytest.CaptureFixture[str], *argv: str) -> list[list[str]]:
+    rows = run(capsys, *argv)
+    return rows[rows.index([]) + 1 :]
+
+
 def weeks_back(day: date) -> str:
     today = datetime.now(UTC).astimezone().date()
     return str((today - timedelta(days=today.weekday()) - (day - timedelta(days=day.weekday()))).days // 7)
@@ -288,18 +293,18 @@ def test_example_config_books_into_the_expanded_home(
 
 
 def test_month_with_an_empty_ledger_prints_zero_totals(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert run(capsys, "month", "2026-08") == [["work", "0:00"], ["total", "0:00"]]
+    assert table(capsys, "month", "2026-08") == [["work", "0:00"], ["total", "0:00"]]
 
 
 def test_month_without_an_argument_uses_the_current_month(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
     run(capsys, "fix", "09:00", "10:00", "assets")
-    assert run(capsys, "month") == [["assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
+    assert table(capsys, "month") == [["assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
 
 
 def test_month_credits_a_span_filed_in_that_month(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
     seed(ledger, span(T0, T0 + 90 * MINUTE, "assets"))
-    assert run(capsys, "month", "2026-08") == [["assets", "1:30"], ["work", "1:30"], ["total", "1:30"]]
-    assert run(capsys, "month", "2026-07") == [["work", "0:00"], ["total", "0:00"]]
+    assert table(capsys, "month", "2026-08") == [["assets", "1:30"], ["work", "1:30"], ["total", "1:30"]]
+    assert table(capsys, "month", "2026-07") == [["work", "0:00"], ["total", "0:00"]]
 
 
 def test_month_reads_the_previous_file_for_a_span_crossing_into_its_first_local_minutes(
@@ -308,8 +313,8 @@ def test_month_reads_the_previous_file_for_a_span_crossing_into_its_first_local_
     last_of_july_utc = datetime(2026, 7, 31, 21, 30, tzinfo=UTC)
     seed(ledger, span(last_of_july_utc, last_of_july_utc + 60 * MINUTE, "assets"))
     assert [path.name for path in ledger.glob("*.jsonl")] == ["2026-07.jsonl"]
-    assert run(capsys, "month", "2026-08") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
-    assert run(capsys, "month", "2026-07") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
+    assert table(capsys, "month", "2026-08") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
+    assert table(capsys, "month", "2026-07") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
 
 
 def test_invoice_rows_are_quarter_hours_summing_to_the_rounded_total(
@@ -367,17 +372,17 @@ def test_present_minutes_with_no_signal_land_on_personal_other(
     ledger: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(ledger, *present(T0, 10))
-    assert run(capsys, "month", "2026-08") == [["other", "0:10"], ["work", "0:00"], ["total", "0:10"]]
+    assert table(capsys, "month", "2026-08") == [["other", "0:10"], ["work", "0:00"], ["total", "0:10"]]
 
 
 def test_idle_stops_credit_and_active_resumes_it(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
     seed(ledger, *present(T0, 15), mark(T0 + 5 * MINUTE, "idle"), mark(T0 + 8 * MINUTE, "active"))
-    assert run(capsys, "month", "2026-08") == [["other", "0:12"], ["work", "0:00"], ["total", "0:12"]]
+    assert table(capsys, "month", "2026-08") == [["other", "0:12"], ["work", "0:00"], ["total", "0:12"]]
 
 
 def test_minutes_without_a_recent_poll_are_absent(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
     seed(ledger, *polls(T0, 1), mark(T0 + 10 * MINUTE, "idle"))
-    assert run(capsys, "month", "2026-08") == [["other", "0:02"], ["work", "0:00"], ["total", "0:02"]]
+    assert table(capsys, "month", "2026-08") == [["other", "0:02"], ["work", "0:00"], ["total", "0:02"]]
 
 
 def test_month_credits_exactly_its_first_and_last_local_minute(
@@ -386,30 +391,30 @@ def test_month_credits_exactly_its_first_and_last_local_minute(
     before_october = datetime(2026, 9, 30, 21, 59, tzinfo=UTC)
     before_november = datetime(2026, 10, 31, 22, 59, tzinfo=UTC)
     seed(ledger, *present(before_october, 2), *present(before_november, 2))
-    assert run(capsys, "month", "2026-09")[-1] == ["total", "0:01"]
-    assert run(capsys, "month", "2026-10")[-1] == ["total", "0:02"]
-    assert run(capsys, "month", "2026-11")[-1] == ["total", "0:01"]
+    assert table(capsys, "month", "2026-09")[-1] == ["total", "0:01"]
+    assert table(capsys, "month", "2026-10")[-1] == ["total", "0:02"]
+    assert table(capsys, "month", "2026-11")[-1] == ["total", "0:01"]
 
 
 def test_the_repeated_dst_hour_credits_every_present_minute_once(
     ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(ledger, *present(datetime(2026, 10, 25, 0, 30, tzinfo=UTC), 61))
-    assert run(capsys, "month", "2026-10") == [["other", "1:01"], ["work", "0:00"], ["total", "1:01"]]
+    assert table(capsys, "month", "2026-10") == [["other", "1:01"], ["work", "0:00"], ["total", "1:01"]]
 
 
 def test_one_beat_in_a_work_repo_takes_every_present_minute(
     home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(ledger, *present(T0, 10), beat(T0, f"{home}/code/work-org/assets"))
-    assert run(capsys, "month", "2026-08") == [["assets", "0:10"], ["work", "0:10"], ["total", "0:10"]]
+    assert table(capsys, "month", "2026-08") == [["assets", "0:10"], ["work", "0:10"], ["total", "0:10"]]
 
 
 def test_beats_in_two_repos_split_each_minute_evenly(
     home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(ledger, *present(T0, 10), beat(T0, f"{home}/code/work-org/assets"), beat(T0, f"{home}/code/work-org/checkout"))
-    assert run(capsys, "month", "2026-08") == [
+    assert table(capsys, "month", "2026-08") == [
         ["assets", "0:05"],
         ["checkout", "0:05"],
         ["work", "0:10"],
@@ -421,7 +426,7 @@ def test_a_beat_lease_expires_after_beat_lease_min(
     home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(ledger, *present(T0, 15), beat(T0, f"{home}/code/work-org/assets"))
-    assert run(capsys, "month", "2026-08") == [
+    assert table(capsys, "month", "2026-08") == [
         ["assets", "0:10"],
         ["other", "0:05"],
         ["work", "0:10"],
@@ -439,7 +444,7 @@ def test_active_resumes_credit_with_a_still_valid_lease(
         mark(T0 + 5 * MINUTE, "idle"),
         mark(T0 + 8 * MINUTE, "active"),
     )
-    assert run(capsys, "month", "2026-08") == [
+    assert table(capsys, "month", "2026-08") == [
         ["assets", "0:07"],
         ["other", "0:05"],
         ["work", "0:07"],
@@ -459,12 +464,12 @@ def test_beats_while_idle_book_nothing_but_renew_the_lease(
         beat(T0 + 6 * MINUTE, repo),
         mark(T0 + 8 * MINUTE, "active"),
     )
-    assert run(capsys, "month", "2026-08") == [["assets", "0:12"], ["work", "0:12"], ["total", "0:12"]]
+    assert table(capsys, "month", "2026-08") == [["assets", "0:12"], ["work", "0:12"], ["total", "0:12"]]
 
 
 def test_a_beat_outside_every_root_leases_nothing(home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
     seed(ledger, *present(T0, 5), beat(T0, f"{home}/Downloads"))
-    assert run(capsys, "month", "2026-08") == [["other", "0:05"], ["work", "0:00"], ["total", "0:05"]]
+    assert table(capsys, "month", "2026-08") == [["other", "0:05"], ["work", "0:00"], ["total", "0:05"]]
 
 
 def test_a_focused_kitty_cwd_leases_its_repo_for_focus_lease_min(
@@ -477,7 +482,7 @@ def test_a_focused_kitty_cwd_leases_its_repo_for_focus_lease_min(
         *polls(T0 + 5 * MINUTE, 5),
         mark(T0 + 10 * MINUTE, "idle"),
     )
-    assert run(capsys, "month", "2026-08") == [
+    assert table(capsys, "month", "2026-08") == [
         ["assets", "0:05"],
         ["other", "0:05"],
         ["work", "0:05"],
@@ -489,7 +494,7 @@ def test_the_ambient_bucket_is_credited_only_while_no_repo_holds_a_lease(
     home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(ledger, *present(T0, 15, title="#next-lending - work-org - Slack"), beat(T0, f"{home}/code/work-org/assets"))
-    assert run(capsys, "month", "2026-08") == [
+    assert table(capsys, "month", "2026-08") == [
         ["assets", "0:10"],
         ["general", "0:05"],
         ["work", "0:15"],
@@ -519,7 +524,7 @@ def test_a_poll_resolves_its_cwd_by_the_longest_root_then_its_title_by_the_first
         *present(T0, 5, window_class="kitty" if cwd else "vivaldi", title=title, cwd=f"{home}/{cwd}" if cwd else None),
     )
     work = "0:05" if kind == "work" else "0:00"
-    assert run(capsys, "month", "2026-08") == [[project, "0:05"], ["work", work], ["total", "0:05"]]
+    assert table(capsys, "month", "2026-08") == [[project, "0:05"], ["work", work], ["total", "0:05"]]
 
 
 def test_a_lease_taken_before_the_range_is_held_at_its_start(
@@ -528,7 +533,7 @@ def test_a_lease_taken_before_the_range_is_held_at_its_start(
     august = datetime(2026, 7, 31, 22, 0, tzinfo=UTC)
     seed(ledger, beat(august - 5 * MINUTE, f"{home}/code/work-org/assets"), *present(august, 5))
     assert [path.name for path in ledger.glob("*.jsonl")] == ["2026-07.jsonl"]
-    assert run(capsys, "month", "2026-08") == [["assets", "0:05"], ["work", "0:05"], ["total", "0:05"]]
+    assert table(capsys, "month", "2026-08") == [["assets", "0:05"], ["work", "0:05"], ["total", "0:05"]]
 
 
 def test_a_span_overrides_beats_wholesale(home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -538,7 +543,7 @@ def test_a_span_overrides_beats_wholesale(home: Path, ledger: Path, capsys: pyte
         beat(T0, f"{home}/code/work-org/assets"),
         span(T0 + 5 * MINUTE, T0 + 10 * MINUTE, "meeting"),
     )
-    assert run(capsys, "month", "2026-08") == [
+    assert table(capsys, "month", "2026-08") == [
         ["assets", "0:05"],
         ["meeting", "0:05"],
         ["work", "0:10"],
@@ -553,7 +558,7 @@ def test_an_off_span_removes_present_minutes(home: Path, ledger: Path, capsys: p
         beat(T0, f"{home}/code/work-org/assets"),
         span(T0 + 5 * MINUTE, T0 + 10 * MINUTE, "lunch", "off"),
     )
-    assert run(capsys, "month", "2026-08") == [["assets", "0:05"], ["work", "0:05"], ["total", "0:05"]]
+    assert table(capsys, "month", "2026-08") == [["assets", "0:05"], ["work", "0:05"], ["total", "0:05"]]
 
 
 def test_lease_and_staleness_keys_are_read_from_the_config(
@@ -566,7 +571,7 @@ def test_lease_and_staleness_keys_are_read_from_the_config(
     monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
     kitty = polls(T0, 1, window_class="kitty", title="~/code/work-org/checkout", cwd=f"{home}/code/work-org/checkout")
     seed(home / "data", *kitty, beat(T0, f"{home}/code/work-org/assets"))
-    assert run(capsys, "month", "2026-08") == [
+    assert table(capsys, "month", "2026-08") == [
         ["assets", "0:02"],
         ["checkout", "0:01"],
         ["other", "0:02"],
@@ -1116,3 +1121,28 @@ def test_caps_come_from_the_config_and_change_colours_but_never_numbers(
     assert out[7] == f"{tagwerk.RED}work 5:00 / 4:00{tagwerk.RESET}"
     _, _, bar, _ = out[2].split()
     assert re.sub(r"\033\[[0-9;]*m", "", bar).index("│") == 8
+    august = lines(capsys, "month", "2026-08")
+    assert august[1].startswith(f"{tagwerk.RED}W32{tagwerk.RESET}")
+    assert august[1].endswith("5:00")
+    assert august[2].startswith("W33  ")
+
+
+def test_month_shows_one_bar_per_iso_week_that_agrees_with_the_table(
+    ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(
+        ledger, hours(T0, 3), hours(T0 + timedelta(days=7), 2), hours(T0 + timedelta(days=26), 1, "auberge", "personal")
+    )
+    out = lines(capsys, "month", "2026-08")
+    bars = [line.split() for line in out[:6]]
+    assert [label for label, _, _ in bars] == ["W31", "W32", "W33", "W34", "W35", "W36"]
+    assert [booked for _, _, booked in bars] == ["0:00", "3:00", "2:00", "0:00", "0:00", "1:00"]
+    assert {bar.index("│") for _, bar, _ in bars} == {16}
+    assert bars[1][1].count("█") == 1
+    assert out[6] == ""
+    assert [line.split() for line in out[7:]] == [
+        ["assets", "5:00"],
+        ["auberge", "1:00"],
+        ["work", "5:00"],
+        ["total", "6:00"],
+    ]

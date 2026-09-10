@@ -452,6 +452,18 @@ def cmd_week(config: Config, weeks_back: int) -> None:
     print("\n".join(out))
 
 
+def cmd_month(config: Config, first: date) -> None:
+    days = credited_days(config, *local_month(first))
+    weeks: defaultdict[tuple[int, int], list[dict[Bucket, float]]] = defaultdict(list)
+    for offset in range((next_month(first) - first).days):
+        day = first + timedelta(days=offset)
+        weeks[(day.isocalendar().year, day.isocalendar().week)].append(days.get(day, {}))
+    bars = [
+        bar_line(f"W{week:02d}", merge(parts), WEEK_SCALE_H, config.week_cap_h) for (_, week), parts in weeks.items()
+    ]
+    print("\n".join([*bars, "", render_table(merge(days.values()))]))
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="tagwerk", description="Passive work-hours ledger for one Linux desktop.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -497,7 +509,7 @@ def main(argv: list[str]) -> int:
     elif args.command == "week":
         cmd_week(config, args.n)
     elif args.command == "month":
-        report(config, *local_month(args.month or local_today().replace(day=1)), render_table)
+        cmd_month(config, args.month or local_today().replace(day=1))
     elif args.command == "invoice":
         report(config, *local_month(args.month), render_invoice)
     elif args.command == "focus":
