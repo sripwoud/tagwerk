@@ -464,3 +464,22 @@ def test_an_off_span_removes_present_minutes(home: Path, ledger: Path, capsys: p
         span(T0 + 5 * MINUTE, T0 + 10 * MINUTE, "lunch", "off"),
     )
     assert run(capsys, "month", "2026-08") == [["assets", "0:05"], ["work", "0:05"], ["total", "0:05"]]
+
+
+def test_lease_and_staleness_keys_are_read_from_the_config(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (home / "config.toml").write_text(
+        f'data_dir = "{home}/data"\npoll_stale_min = 5\nbeat_lease_min = 3\nfocus_lease_min = 2\n'
+        f'[roots]\n"{home}/code/work-org" = "work"\n'
+    )
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
+    kitty = polls(T0, 1, window_class="kitty", title="~/code/work-org/checkout", cwd=f"{home}/code/work-org/checkout")
+    seed(home / "data", *kitty, beat(T0, f"{home}/code/work-org/assets"))
+    assert run(capsys, "month", "2026-08") == [
+        ["assets", "0:02"],
+        ["checkout", "0:01"],
+        ["other", "0:02"],
+        ["work", "0:03"],
+        ["total", "0:05"],
+    ]
