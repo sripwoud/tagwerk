@@ -48,8 +48,10 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
-def ledger(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setenv("TAGWERK_CONFIG", str(SCRIPT.with_name("config.example.toml")))
+def ledger(home: Path) -> Path:
+    config = home / ".config/tagwerk/config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(tagwerk.CONFIG_TEMPLATE)
     return home / ".local/share/tagwerk"
 
 
@@ -283,13 +285,17 @@ def test_config_defaults_to_xdg_config_home(
     assert run(capsys, "today") == [["assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
 
 
-def test_example_config_books_into_the_expanded_home(
-    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_init_writes_the_template_once_and_it_books_into_the_expanded_home(
+    home: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("TAGWERK_CONFIG", str(SCRIPT.with_name("config.example.toml")))
+    config = home / ".config/tagwerk/config.toml"
+    assert lines(capsys, "init") == [f"wrote {config}"]
     run(capsys, "fix", "09:00", "10:00", "assets")
     assert run(capsys, "today") == [["assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
     assert len(list((home / ".local/share/tagwerk").glob("*.jsonl"))) == 1
+    with pytest.raises(SystemExit, match=re.escape(str(config))):
+        tagwerk.main(["init"])
+    assert config.read_text() == tagwerk.CONFIG_TEMPLATE
 
 
 def test_month_with_an_empty_ledger_prints_zero_totals(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
