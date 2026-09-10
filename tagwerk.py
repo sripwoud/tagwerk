@@ -18,9 +18,13 @@ class Bucket(NamedTuple):
     project: str
 
 
+OTHER = Bucket("personal", "other")
+
+
 @dataclass(frozen=True)
 class Config:
     data_dir: Path
+    poll_stale: timedelta
 
 
 def default_config_path() -> Path:
@@ -36,7 +40,7 @@ def load_config(path: Path) -> Config:
         raise SystemExit(f"config file not found: {path}")
     raw = tomllib.loads(path.read_text())
     data_dir = Path(os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir") or default_data_dir()).expanduser()
-    return Config(data_dir=data_dir)
+    return Config(data_dir=data_dir, poll_stale=timedelta(minutes=raw.get("poll_stale_min", 2)))
 
 
 def format_utc(moment: datetime) -> str:
@@ -82,7 +86,7 @@ def read_events(config: Config, start: datetime, end: datetime) -> list[Event]:
     return sorted(events, key=lambda event: event["ts"])
 
 
-def attribute(events: list[Event], start: datetime, end: datetime) -> dict[Bucket, float]:
+def attribute(config: Config, events: list[Event], start: datetime, end: datetime) -> dict[Bucket, float]:
     spans = [
         (
             datetime.fromisoformat(event["start"]),
@@ -93,16 +97,30 @@ def attribute(events: list[Event], start: datetime, end: datetime) -> dict[Bucke
         if event["ev"] == "span"
     ]
     spans.reverse()
+    stream = [(datetime.fromisoformat(event["ts"]), event) for event in events if event["ev"] != "span"]
     minutes: defaultdict[Bucket, float] = defaultdict(float)
+    idle = False
+    last_poll: datetime | None = None
+    pending = 0
     minute = start
     # ponytail: O(minutes x spans) scan per report; a month is 43k minutes, fine for years of data
     while minute < end:
-        for span_start, span_end, bucket in spans:
-            if span_start <= minute < span_end:
-                # ponytail: the latest span covering a minute wins wholesale; no partial merge with sensor minutes
-                if bucket.kind != "off":
-                    minutes[bucket] += 1.0
-                break
+        while pending < len(stream) and stream[pending][0] <= minute:
+            ts, event = stream[pending]
+            pending += 1
+            if event["ev"] == "idle":
+                idle = True
+            elif event["ev"] == "active":
+                idle = False
+            elif event["ev"] == "focus":
+                last_poll = ts
+        # ponytail: the latest span covering a minute wins wholesale; no partial merge with sensor minutes
+        booked = next((bucket for span_start, span_end, bucket in spans if span_start <= minute < span_end), None)
+        if booked is not None:
+            if booked.kind != "off":
+                minutes[booked] += 1.0
+        elif not idle and last_poll is not None and minute - last_poll < config.poll_stale:
+            minutes[OTHER] += 1.0
         minute += timedelta(minutes=1)
     return minutes
 
@@ -164,7 +182,7 @@ def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: 
 
 
 def report(config: Config, start: datetime, end: datetime) -> None:
-    print(render_table(attribute(read_events(config, start, end), start, end)))
+    print(render_table(attribute(config, read_events(config, start, end), start, end)))
 
 
 def main(argv: list[str]) -> int:

@@ -60,6 +60,20 @@ def stamp(moment: datetime) -> str:
     return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def polls(
+    start: datetime, count: int, cls: str = "vivaldi", title: str = "New Tab - Vivaldi", cwd: str | None = None
+) -> list[Event]:
+    return [{"ts": stamp(start + i * M), "ev": "focus", "class": cls, "title": title, "cwd": cwd} for i in range(count)]
+
+
+def mark(moment: datetime, ev: str) -> Event:
+    return {"ts": stamp(moment), "ev": ev}
+
+
+def present(start: datetime, count: int, **window: Any) -> list[Event]:
+    return [mark(start, "active"), *polls(start, count, **window), mark(start + count * M, "idle")]
+
+
 def span(start: datetime, end: datetime, project: str, kind: str = "work") -> Event:
     return {"ts": stamp(end), "ev": "span", "start": stamp(start), "end": stamp(end), "kind": kind, "project": project}
 
@@ -250,3 +264,38 @@ def test_month_reads_the_previous_file_for_a_span_crossing_into_its_first_local_
     assert [path.name for path in ledger.glob("*.jsonl")] == ["2026-07.jsonl"]
     assert run(capsys, "month", "2026-08") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
     assert run(capsys, "month", "2026-07") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
+
+
+def test_present_minutes_with_no_signal_land_on_personal_other(
+    ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(ledger, *present(T0, 10))
+    assert run(capsys, "month", "2026-08") == [["other", "0:10"], ["work", "0:00"], ["total", "0:10"]]
+
+
+def test_idle_stops_credit_and_active_resumes_it(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    seed(ledger, *present(T0, 15), mark(T0 + 5 * M, "idle"), mark(T0 + 8 * M, "active"))
+    assert run(capsys, "month", "2026-08") == [["other", "0:12"], ["work", "0:00"], ["total", "0:12"]]
+
+
+def test_minutes_without_a_recent_poll_are_absent(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    seed(ledger, *polls(T0, 1), mark(T0 + 10 * M, "idle"))
+    assert run(capsys, "month", "2026-08") == [["other", "0:02"], ["work", "0:00"], ["total", "0:02"]]
+
+
+def test_month_credits_exactly_its_first_and_last_local_minute(
+    ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    before_october = datetime(2026, 9, 30, 21, 59, tzinfo=UTC)
+    before_november = datetime(2026, 10, 31, 22, 59, tzinfo=UTC)
+    seed(ledger, *present(before_october, 2), *present(before_november, 2))
+    assert run(capsys, "month", "2026-09")[-1] == ["total", "0:01"]
+    assert run(capsys, "month", "2026-10")[-1] == ["total", "0:02"]
+    assert run(capsys, "month", "2026-11")[-1] == ["total", "0:01"]
+
+
+def test_the_repeated_dst_hour_credits_every_present_minute_once(
+    ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(ledger, *present(datetime(2026, 10, 25, 0, 30, tzinfo=UTC), 61))
+    assert run(capsys, "month", "2026-10") == [["other", "1:01"], ["work", "0:00"], ["total", "1:01"]]
