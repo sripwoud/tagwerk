@@ -1,5 +1,5 @@
 # Copy to ~/.config/tagwerk/config.toml, or point TAGWERK_CONFIG at a copy.
-data_dir = "~/.local/share/tagwerk" # TAGWERK_DATA_DIR overrides this
+# data_dir = "~/.local/share/tagwerk" # default $XDG_DATA_HOME/tagwerk; TAGWERK_DATA_DIR overrides both
 poll_sec = 15
 poll_stale_min = 2 # a poll this recent proves the machine was on
 beat_lease_min = 10 # an agent beat leases its repo this long

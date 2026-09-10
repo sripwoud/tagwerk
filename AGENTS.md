@@ -14,4 +14,4 @@ Single-context: `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/
 
 ### Docs layout
 
-Plans, specs and research live under `docs/`. Agent-facing operational reference lives under `docs/agents/`. The root holds `AGENTS.md`, `CONTEXT.md` and code.
+Plans, specs and research live under `docs/`. Agent-facing operational reference lives under `docs/agents/`. The root holds `AGENTS.md`, `CONTEXT.md`, `README.md` and code.
