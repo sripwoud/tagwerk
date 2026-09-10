@@ -252,11 +252,11 @@ def active_window() -> tuple[str, str, int] | None:
     return window["class"], window["title"], window["pid"]
 
 
-def active_item(items: list[Any]) -> Any:
+def active_item(items: list[dict[str, Any]]) -> dict[str, Any] | None:
     return next((item for item in items if item["is_active"]), None)
 
 
-def parse_kitty_ls(os_windows: list[Any]) -> str | None:
+def parse_kitty_ls(os_windows: list[dict[str, Any]]) -> str | None:
     os_window = active_item(os_windows)
     tab = active_item(os_window["tabs"]) if os_window else None
     window = active_item(tab["windows"]) if tab else None
@@ -283,12 +283,12 @@ def cmd_focus(config: Config, once: bool) -> None:
     while True:
         window = active_window()
         if window:
-            cls, title, pid = window
-            cwd = kitty_cwd(config, pid) if cls == "kitty" else None
-            current = (cls, title, cwd)
-            # ponytail: 15 s polls and a 60 s re-poll; Hyprland socket2 events cannot see cd and fire per spinner frame
+            window_class, title, pid = window
+            cwd = kitty_cwd(config, pid) if window_class == "kitty" else None
+            current = (window_class, title, cwd)
+            # ponytail: poll_sec granularity; Hyprland socket2 events would be finer but cannot see cd
             if current != last or monotonic() - last_write >= REPOLL_SEC:
-                append_event(config, {"ev": "focus", "class": cls, "title": title, "cwd": cwd})
+                append_event(config, {"ev": "focus", "class": window_class, "title": title, "cwd": cwd})
                 last, last_write = current, monotonic()
         if once:
             return
