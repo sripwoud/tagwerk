@@ -70,3 +70,23 @@ def test_fix_appends_one_utc_span_line_to_the_utc_month_file(
     start, end = datetime.fromisoformat(span["start"]), datetime.fromisoformat(span["end"])
     assert end - start == timedelta(minutes=90)
     assert start.astimezone().strftime("%H:%M") == "09:00"
+
+
+def test_latest_appended_span_wins_on_overlap(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    run(capsys, "fix", "09:30", "10:00", "auberge", "--personal")
+    assert run(capsys, "today") == [["assets", "0:30"], ["auberge", "0:30"], ["work", "0:30"], ["total", "1:00"]]
+
+
+def test_personal_rows_follow_work_rows_regardless_of_minutes(
+    data_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run(capsys, "fix", "09:00", "09:30", "assets")
+    run(capsys, "fix", "10:00", "12:00", "auberge", "--personal")
+    assert run(capsys, "today") == [["assets", "0:30"], ["auberge", "2:00"], ["work", "0:30"], ["total", "2:30"]]
+
+
+def test_off_span_removes_booked_minutes(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    run(capsys, "fix", "09:30", "10:00", "lunch", "--off")
+    assert run(capsys, "today") == [["assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]

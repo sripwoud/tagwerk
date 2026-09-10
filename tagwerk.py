@@ -66,7 +66,8 @@ def attribute(events: list[Event], start: datetime, end: datetime) -> dict[Bucke
     while minute < end:
         for span_start, span_end, bucket in spans:
             if span_start <= minute < span_end:
-                minutes[bucket] += 1.0
+                if bucket[0] != "off":
+                    minutes[bucket] += 1.0
                 break
         minute += timedelta(minutes=1)
     return minutes
@@ -93,7 +94,7 @@ def hours_mm(minutes: float) -> str:
 
 
 def render_table(minutes: dict[Bucket, float]) -> str:
-    rows = sorted(minutes.items(), key=lambda item: (-item[1], item[0][1]))
+    rows = sorted(minutes.items(), key=lambda item: (item[0][0] != "work", -item[1], item[0][1]))
     cells = [(project, hours_mm(m)) for (_, project), m in rows]
     cells.append(("work", hours_mm(sum(m for (kind, _), m in rows if kind == "work"))))
     cells.append(("total", hours_mm(sum(minutes.values()))))
@@ -120,6 +121,13 @@ def main(argv: list[str]) -> int:
     fix.add_argument("start", type=local_time, help="HH:MM, local time today")
     fix.add_argument("end", type=local_time, help="HH:MM, local time today")
     fix.add_argument("project")
+    kind = fix.add_mutually_exclusive_group()
+    kind.add_argument(
+        "--personal", dest="kind", action="store_const", const="personal", help="chart only, never invoiced"
+    )
+    kind.add_argument(
+        "--off", dest="kind", action="store_const", const="off", help="remove the range from every report"
+    )
     fix.set_defaults(kind="work")
     commands.add_parser("today", help="hours per project for the local day")
     args = parser.parse_args(argv)
