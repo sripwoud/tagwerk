@@ -98,10 +98,6 @@ def seed(ledger: Path, *events: Event) -> None:
             month.write(json.dumps(event) + "\n")
 
 
-def lines(ledger: Path) -> list[Event]:
-    return [json.loads(line) for path in sorted(ledger.glob("*.jsonl")) for line in path.read_text().splitlines()]
-
-
 @pytest.mark.parametrize(
     "command", [[], ["fix"], ["today"], ["month"], ["focus"], ["import-timew"], ["beat"], ["idle"], ["active"]]
 )
@@ -789,7 +785,7 @@ def test_import_timew_runs_timew_export_without_a_file(
 def test_beat_appends_one_line_with_src_and_cwd(home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
     repo = f"{home}/code/work-org/assets.1"
     run(capsys, "beat", "claude", "--cwd", repo)
-    [beat] = lines(ledger)
+    [beat] = ledger_lines(ledger)
     assert {key: beat[key] for key in ("ev", "src", "cwd")} == {"ev": "beat", "src": "claude", "cwd": repo}
     assert beat["ts"].endswith("Z")
 
@@ -800,12 +796,12 @@ def test_a_second_beat_within_the_throttle_appends_nothing_until_the_stamp_ages(
     repo = f"{home}/code/work-org/assets.1"
     run(capsys, "beat", "claude", "--cwd", repo)
     run(capsys, "beat", "claude", "--cwd", repo)
-    assert len(lines(ledger)) == 1
+    assert len(ledger_lines(ledger)) == 1
     [marker] = (home / "run/tagwerk").glob("claude-*")
     aged = marker.stat().st_mtime - 61
     os.utime(marker, (aged, aged))
     run(capsys, "beat", "claude", "--cwd", repo)
-    assert len(lines(ledger)) == 2
+    assert len(ledger_lines(ledger)) == 2
 
 
 def test_beats_from_two_sources_or_two_cwds_are_throttled_apart(
@@ -814,7 +810,7 @@ def test_beats_from_two_sources_or_two_cwds_are_throttled_apart(
     run(capsys, "beat", "claude", "--cwd", f"{home}/code/work-org/assets")
     run(capsys, "beat", "pi", "--cwd", f"{home}/code/work-org/assets")
     run(capsys, "beat", "claude", "--cwd", f"{home}/code/work-org/checkout")
-    assert len(lines(ledger)) == 3
+    assert len(ledger_lines(ledger)) == 3
 
 
 def test_beat_reads_the_cwd_from_a_claude_hook_payload_on_stdin(
@@ -824,7 +820,7 @@ def test_beat_reads_the_cwd_from_a_claude_hook_payload_on_stdin(
     payload = {"session_id": "abc", "hook_event_name": "PostToolUse", "cwd": repo, "tool_name": "Bash"}
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
     run(capsys, "beat", "claude")
-    [beat] = lines(ledger)
+    [beat] = ledger_lines(ledger)
     assert beat["cwd"] == repo
 
 
@@ -844,7 +840,7 @@ def test_beat_without_a_cwd_on_a_piped_stdin_uses_the_process_cwd(
     monkeypatch.chdir(repo)
     monkeypatch.setattr("sys.stdin", stdin)
     run(capsys, "beat", "pi")
-    [beat] = lines(ledger)
+    [beat] = ledger_lines(ledger)
     assert beat["cwd"] == str(repo)
 
 
@@ -864,13 +860,13 @@ def test_beat_throttle_is_read_from_the_config(
     monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
     run(capsys, "beat", "claude", "--cwd", f"{home}/code/work-org/assets")
     run(capsys, "beat", "claude", "--cwd", f"{home}/code/work-org/assets")
-    assert len(lines(home / "data")) == 2
+    assert len(ledger_lines(home / "data")) == 2
 
 
 @pytest.mark.parametrize("ev", ["idle", "active"])
 def test_idle_and_active_each_append_one_bare_mark(ledger: Path, capsys: pytest.CaptureFixture[str], ev: str) -> None:
     run(capsys, ev)
-    [event] = lines(ledger)
+    [event] = ledger_lines(ledger)
     assert event["ev"] == ev
     assert set(event) == {"ts", "ev"}
 
