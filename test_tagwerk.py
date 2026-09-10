@@ -21,6 +21,15 @@ def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return data_dir
 
 
+@pytest.fixture
+def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    for name in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "TAGWERK_CONFIG", "TAGWERK_DATA_DIR"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
 def run(capsys: pytest.CaptureFixture[str], *argv: str) -> list[list[str]]:
     assert tagwerk.main(list(argv)) == 0
     return [line.split() for line in capsys.readouterr().out.splitlines()]
@@ -131,23 +140,44 @@ def test_data_dir_env_overrides_config(
 
 
 def test_data_dir_defaults_under_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    config = tmp_path / "config.toml"
-    config.write_text('[roots]\n"~/code" = "personal"\n')
-    monkeypatch.setenv("TAGWERK_CONFIG", str(config))
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.chdir(tmp_path)
+    (home / "config.toml").write_text("")
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
     run(capsys, "fix", "09:00", "10:00", "assets")
-    assert len(list((tmp_path / ".local/share/tagwerk").glob("*.jsonl"))) == 1
+    assert len(list((home / ".local/share/tagwerk").glob("*.jsonl"))) == 1
+
+
+def test_data_dir_defaults_to_xdg_data_home(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (home / "config.toml").write_text("")
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(home / "xdg"))
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    assert len(list((home / "xdg/tagwerk").glob("*.jsonl"))) == 1
+
+
+def test_config_defaults_under_home(home: Path) -> None:
+    with pytest.raises(SystemExit, match=re.escape(str(home / ".config/tagwerk/config.toml"))):
+        tagwerk.main(["today"])
+
+
+def test_config_defaults_to_xdg_config_home(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = home / "xdg/tagwerk/config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(f'data_dir = "{home}/data"\n')
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / "xdg"))
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    assert run(capsys, "today") == [["assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
 
 
 def test_example_config_books_into_the_expanded_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setenv("TAGWERK_CONFIG", str(SCRIPT.with_name("config.example.toml")))
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.chdir(tmp_path)
     run(capsys, "fix", "09:00", "10:00", "assets")
     assert run(capsys, "today") == [["assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
-    assert len(list((tmp_path / ".local/share/tagwerk").glob("*.jsonl"))) == 1
+    assert len(list((home / ".local/share/tagwerk").glob("*.jsonl"))) == 1

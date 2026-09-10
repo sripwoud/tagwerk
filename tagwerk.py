@@ -24,14 +24,22 @@ class Config:
     roots: list[tuple[Path, str]]
 
 
+def default_config_path() -> Path:
+    return Path(os.environ.get("XDG_CONFIG_HOME", "~/.config")).expanduser() / "tagwerk" / "config.toml"
+
+
+def default_data_dir() -> Path:
+    return Path(os.environ.get("XDG_DATA_HOME", "~/.local/share")).expanduser() / "tagwerk"
+
+
 def load_config(path: Path) -> Config:
     if not path.is_file():
         raise SystemExit(f"config file not found: {path}")
     raw = tomllib.loads(path.read_text())
-    data_dir = os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir", "~/.local/share/tagwerk")
+    data_dir = Path(os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir") or default_data_dir()).expanduser()
     roots = [(Path(prefix).expanduser(), kind) for prefix, kind in raw.get("roots", {}).items()]
     roots.sort(key=lambda root: len(str(root[0])), reverse=True)
-    return Config(data_dir=Path(data_dir).expanduser(), roots=roots)
+    return Config(data_dir=data_dir, roots=roots)
 
 
 def format_utc(moment: datetime) -> str:
@@ -165,7 +173,7 @@ def main(argv: list[str]) -> int:
     fix.set_defaults(kind="work")
     commands.add_parser("today", help="hours per project for the local day")
     args = parser.parse_args(argv)
-    config = load_config(Path(os.environ.get("TAGWERK_CONFIG", "~/.config/tagwerk/config.toml")).expanduser())
+    config = load_config(Path(os.environ.get("TAGWERK_CONFIG") or default_config_path()).expanduser())
     if args.command == "fix":
         cmd_fix(config, args.start, args.end, args.project, args.kind)
     else:
