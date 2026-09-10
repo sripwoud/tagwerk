@@ -1,8 +1,10 @@
 # Copy to ~/.config/tagwerk/config.toml, or point TAGWERK_CONFIG at a copy.
 data_dir = "~/.local/share/tagwerk" # TAGWERK_DATA_DIR overrides this
+poll_sec = 15
 poll_stale_min = 2 # a poll this recent proves the machine was on
 beat_lease_min = 10 # an agent beat leases its repo this long
 focus_lease_min = 1 # a focused kitty cwd or GitHub repo title leases its repo this long
+kitty_socket = "unix:${XDG_RUNTIME_DIR}/omarchy-kitty-{pid}" # Omarchy default; {pid} is the focused kitty's pid
 
 [roots] # longest match wins; the project is the first directory below the root, cut at its first dot
 "~/code/work-org" = "work"
