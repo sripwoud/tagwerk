@@ -21,7 +21,6 @@ class Bucket(NamedTuple):
 @dataclass(frozen=True)
 class Config:
     data_dir: Path
-    roots: list[tuple[Path, str]]
 
 
 def default_config_path() -> Path:
@@ -37,9 +36,7 @@ def load_config(path: Path) -> Config:
         raise SystemExit(f"config file not found: {path}")
     raw = tomllib.loads(path.read_text())
     data_dir = Path(os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir") or default_data_dir()).expanduser()
-    roots = [(Path(prefix).expanduser(), kind) for prefix, kind in raw.get("roots", {}).items()]
-    roots.sort(key=lambda root: len(str(root[0])), reverse=True)
-    return Config(data_dir=data_dir, roots=roots)
+    return Config(data_dir=data_dir)
 
 
 def format_utc(moment: datetime) -> str:
