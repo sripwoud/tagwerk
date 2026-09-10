@@ -1114,11 +1114,11 @@ def test_caps_come_from_the_config_and_change_colours_but_never_numbers(
     monkeypatch.setenv("FORCE_COLOR", "1")
     (home / "config.toml").write_text(f'data_dir = "{home}/data"\nday_cap_h = 4\nweek_cap_h = 4\n')
     monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
-    seed(home / "data", hours(T0, 5))
+    seed(home / "data", hours(T0, 3), hours(T0 + 3 * timedelta(hours=1), 2, "auberge", "personal"))
     out = lines(capsys, "week", "-n", WEEK)
     assert out[2].startswith(f"{tagwerk.RED}Wed 05{tagwerk.RESET}")
     assert out[2].endswith("5:00")
-    assert out[7] == f"{tagwerk.RED}work 5:00 / 4:00{tagwerk.RESET}"
+    assert out[7] == "work 3:00 / 4:00"
     _, _, bar, _ = out[2].split()
     assert re.sub(r"\033\[[0-9;]*m", "", bar).index("│") == 8
     august = lines(capsys, "month", "2026-08")

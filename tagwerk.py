@@ -9,7 +9,7 @@ import sys
 import tomllib
 import zlib
 from collections import defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from itertools import groupby
@@ -27,7 +27,8 @@ RESET = "\033[0m"
 BLUE = 33
 DIM = 238
 GREYS = (240, 245, 250)
-# ponytail: five hues pass the dataviz validator on every pair; a hash over five slots collides past a handful of repos
+# ponytail: five hues pass the dataviz validator on every pair, so a crc32 over them collides past a handful of repos;
+# widen PALETTE with hues that still pass the validator once two repos share one
 PALETTE = (166, 36, 176, 61, 142)
 
 
@@ -233,6 +234,10 @@ def local_month(first: date) -> tuple[datetime, datetime]:
     return local_range(first, next_month(first))
 
 
+def days_between(start: date, stop: date) -> Iterator[date]:
+    return (start + timedelta(days=offset) for offset in range((stop - start).days))
+
+
 def parse_month(text: str) -> date:
     return date.fromisoformat(f"{text}-01")
 
@@ -318,8 +323,10 @@ def render_bar(minutes: dict[Bucket, float], scale_h: float, cap_h: float) -> st
 
 def bar_line(label: str, minutes: dict[Bucket, float], scale_h: float, cap_h: float, weekend: bool = False) -> str:
     total = sum(minutes.values())
-    hot = total > cap_h * 60 or (weekend and total > 0)
-    return f"{paint(label, RED) if hot else label}  {render_bar(minutes, scale_h, cap_h)}  {format_hours(total):>5}"
+    over_cap = total > cap_h * 60 or (weekend and total > 0)
+    return (
+        f"{paint(label, RED) if over_cap else label}  {render_bar(minutes, scale_h, cap_h)}  {format_hours(total):>5}"
+    )
 
 
 def append_span(config: Config, start: datetime, end: datetime, kind: str, project: str, src: str) -> None:
@@ -444,7 +451,7 @@ def cmd_week(config: Config, weeks_back: int) -> None:
     days = credited_days(config, *local_range(monday, monday + timedelta(days=7)))
     out = [
         bar_line(f"{day:%a %d}", days.get(day, {}), DAY_SCALE_H, config.day_cap_h, weekend=day.weekday() >= 5)
-        for day in (monday + timedelta(days=offset) for offset in range(7))
+        for day in days_between(monday, monday + timedelta(days=7))
     ]
     work = work_minutes(merge(days.values()))
     footer = f"work {format_hours(work)} / {format_hours(config.week_cap_h * 60)}"
@@ -455,8 +462,7 @@ def cmd_week(config: Config, weeks_back: int) -> None:
 def cmd_month(config: Config, first: date) -> None:
     days = credited_days(config, *local_month(first))
     weeks: defaultdict[tuple[int, int], list[dict[Bucket, float]]] = defaultdict(list)
-    for offset in range((next_month(first) - first).days):
-        day = first + timedelta(days=offset)
+    for day in days_between(first, next_month(first)):
         weeks[(day.isocalendar().year, day.isocalendar().week)].append(days.get(day, {}))
     bars = [
         bar_line(f"W{week:02d}", merge(parts), WEEK_SCALE_H, config.week_cap_h) for (_, week), parts in weeks.items()
@@ -482,7 +488,9 @@ def main(argv: list[str]) -> int:
     commands.add_parser("today", help="hours per project for the local day")
     week = commands.add_parser("week", help="one bar per day, Monday to Sunday, with the day and week caps")
     week.add_argument("-n", type=int, default=0, metavar="N", help="weeks back, default 0")
-    month = commands.add_parser("month", help="hours per project for a calendar month")
+    month = commands.add_parser(
+        "month", help="one bar per ISO week, counting only its days inside the month, then hours per project"
+    )
     month.add_argument("month", nargs="?", type=parse_month, default=None, help="YYYY-MM, default the current month")
     invoice = commands.add_parser("invoice", help="markdown table of work hours per project in quarter hours")
     invoice.add_argument("month", type=parse_month, help="YYYY-MM")
