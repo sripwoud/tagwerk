@@ -48,7 +48,7 @@ def append_event(cfg: Config, event: Event) -> None:
 
 def read_events(cfg: Config, start: datetime, end: datetime) -> list[Event]:
     events: list[Event] = []
-    month = start.date().replace(day=1)
+    month = (start - timedelta(days=1)).date().replace(day=1)
     while month <= end.date():
         path = month_file(cfg, month)
         if path.is_file():
