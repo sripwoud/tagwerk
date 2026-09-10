@@ -70,6 +70,10 @@ def mark(moment: datetime, ev: str) -> Event:
     return {"ts": stamp(moment), "ev": ev}
 
 
+def beat(moment: datetime, cwd: str) -> Event:
+    return {"ts": stamp(moment), "ev": "beat", "src": "claude", "cwd": cwd}
+
+
 def present(start: datetime, count: int, **window: Any) -> list[Event]:
     return [mark(start, "active"), *polls(start, count, **window), mark(start + count * M, "idle")]
 
@@ -299,3 +303,153 @@ def test_the_repeated_dst_hour_credits_every_present_minute_once(
 ) -> None:
     seed(ledger, *present(datetime(2026, 10, 25, 0, 30, tzinfo=UTC), 61))
     assert run(capsys, "month", "2026-10") == [["other", "1:01"], ["work", "0:00"], ["total", "1:01"]]
+
+
+def test_one_beat_in_a_work_repo_takes_every_present_minute(
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(ledger, *present(T0, 10), beat(T0, f"{home}/code/work-org/assets"))
+    assert run(capsys, "month", "2026-08") == [["assets", "0:10"], ["work", "0:10"], ["total", "0:10"]]
+
+
+def test_beats_in_two_repos_split_each_minute_evenly(
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(ledger, *present(T0, 10), beat(T0, f"{home}/code/work-org/assets"), beat(T0, f"{home}/code/work-org/checkout"))
+    assert run(capsys, "month", "2026-08") == [
+        ["assets", "0:05"],
+        ["checkout", "0:05"],
+        ["work", "0:10"],
+        ["total", "0:10"],
+    ]
+
+
+def test_a_beat_lease_expires_after_beat_lease_min(
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(ledger, *present(T0, 15), beat(T0, f"{home}/code/work-org/assets"))
+    assert run(capsys, "month", "2026-08") == [
+        ["assets", "0:10"],
+        ["other", "0:05"],
+        ["work", "0:10"],
+        ["total", "0:15"],
+    ]
+
+
+def test_active_resumes_credit_with_a_still_valid_lease(
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(
+        ledger,
+        *present(T0, 15),
+        beat(T0, f"{home}/code/work-org/assets"),
+        mark(T0 + 5 * M, "idle"),
+        mark(T0 + 8 * M, "active"),
+    )
+    assert run(capsys, "month", "2026-08") == [
+        ["assets", "0:07"],
+        ["other", "0:05"],
+        ["work", "0:07"],
+        ["total", "0:12"],
+    ]
+
+
+def test_beats_while_idle_book_nothing_but_renew_the_lease(
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = f"{home}/code/work-org/assets"
+    seed(
+        ledger,
+        *present(T0, 15),
+        beat(T0, repo),
+        mark(T0 + 5 * M, "idle"),
+        beat(T0 + 6 * M, repo),
+        mark(T0 + 8 * M, "active"),
+    )
+    assert run(capsys, "month", "2026-08") == [["assets", "0:12"], ["work", "0:12"], ["total", "0:12"]]
+
+
+def test_a_beat_outside_every_root_leases_nothing(home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    seed(ledger, *present(T0, 5), beat(T0, f"{home}/Downloads"))
+    assert run(capsys, "month", "2026-08") == [["other", "0:05"], ["work", "0:00"], ["total", "0:05"]]
+
+
+def test_a_focused_kitty_cwd_leases_its_repo_for_focus_lease_min(
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(
+        ledger,
+        mark(T0, "active"),
+        *polls(T0, 5, cls="kitty", title="~/code/work-org/assets", cwd=f"{home}/code/work-org/assets"),
+        *polls(T0 + 5 * M, 5),
+        mark(T0 + 10 * M, "idle"),
+    )
+    assert run(capsys, "month", "2026-08") == [
+        ["assets", "0:05"],
+        ["other", "0:05"],
+        ["work", "0:05"],
+        ["total", "0:10"],
+    ]
+
+
+def test_the_ambient_bucket_is_credited_only_while_no_repo_holds_a_lease(
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(ledger, *present(T0, 15, title="#next-lending - work-org - Slack"), beat(T0, f"{home}/code/work-org/assets"))
+    assert run(capsys, "month", "2026-08") == [
+        ["assets", "0:10"],
+        ["general", "0:05"],
+        ["work", "0:15"],
+        ["total", "0:15"],
+    ]
+
+
+@pytest.mark.parametrize(
+    ("cwd", "title", "kind", "project"),
+    [
+        ("code/work-org/assets.8467/src", "~/code/work-org/assets.8467/src", "work", "assets"),
+        ("code/work-org/tools", "~/code/work-org/tools", "work", "tools"),
+        ("code/work-org", "~/code/work-org", "work", "general"),
+        ("code/auberge/site", "~/code/auberge/site", "personal", "auberge"),
+        ("code", "~/code", "personal", "general"),
+        ("Downloads", "~/Downloads", "personal", "other"),
+        (None, "work-org/assets: Fix rounding · GitHub", "work", "assets"),
+        (None, "#next-lending - work-org - Slack", "work", "general"),
+        (None, "New Tab - Vivaldi", "personal", "other"),
+    ],
+)
+def test_a_poll_resolves_its_cwd_by_the_longest_root_then_its_title_by_the_first_rule(
+    home: Path, ledger: Path, capsys: pytest.CaptureFixture[str], cwd: str | None, title: str, kind: str, project: str
+) -> None:
+    seed(ledger, *present(T0, 5, cls="kitty" if cwd else "vivaldi", title=title, cwd=f"{home}/{cwd}" if cwd else None))
+    work = "0:05" if kind == "work" else "0:00"
+    assert run(capsys, "month", "2026-08") == [[project, "0:05"], ["work", work], ["total", "0:05"]]
+
+
+def test_a_lease_taken_before_the_range_is_held_at_its_start(
+    home: Path, ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    august = datetime(2026, 7, 31, 22, 0, tzinfo=UTC)
+    seed(ledger, beat(august - 5 * M, f"{home}/code/work-org/assets"), *present(august, 5))
+    assert [path.name for path in ledger.glob("*.jsonl")] == ["2026-07.jsonl"]
+    assert run(capsys, "month", "2026-08") == [["assets", "0:05"], ["work", "0:05"], ["total", "0:05"]]
+
+
+def test_a_span_overrides_beats_wholesale(home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    seed(ledger, *present(T0, 10), beat(T0, f"{home}/code/work-org/assets"), span(T0 + 5 * M, T0 + 10 * M, "meeting"))
+    assert run(capsys, "month", "2026-08") == [
+        ["assets", "0:05"],
+        ["meeting", "0:05"],
+        ["work", "0:10"],
+        ["total", "0:10"],
+    ]
+
+
+def test_an_off_span_removes_present_minutes(home: Path, ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    seed(
+        ledger,
+        *present(T0, 10),
+        beat(T0, f"{home}/code/work-org/assets"),
+        span(T0 + 5 * M, T0 + 10 * M, "lunch", "off"),
+    )
+    assert run(capsys, "month", "2026-08") == [["assets", "0:05"], ["work", "0:05"], ["total", "0:05"]]

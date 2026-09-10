@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 import tomllib
 from collections import defaultdict
@@ -19,12 +20,17 @@ class Bucket(NamedTuple):
 
 
 OTHER = Bucket("personal", "other")
+TitleRule = tuple[re.Pattern[str], str, str | None]
 
 
 @dataclass(frozen=True)
 class Config:
     data_dir: Path
     poll_stale: timedelta
+    beat_lease: timedelta
+    focus_lease: timedelta
+    roots: list[tuple[Path, str]]
+    titles: list[TitleRule]
 
 
 def default_config_path() -> Path:
@@ -40,7 +46,42 @@ def load_config(path: Path) -> Config:
         raise SystemExit(f"config file not found: {path}")
     raw = tomllib.loads(path.read_text())
     data_dir = Path(os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir") or default_data_dir()).expanduser()
-    return Config(data_dir=data_dir, poll_stale=timedelta(minutes=raw.get("poll_stale_min", 2)))
+    roots = [(Path(root).expanduser(), kind) for root, kind in raw.get("roots", {}).items()]
+    roots.sort(key=lambda root: len(root[0].parts), reverse=True)
+    return Config(
+        data_dir=data_dir,
+        poll_stale=timedelta(minutes=raw.get("poll_stale_min", 2)),
+        beat_lease=timedelta(minutes=raw.get("beat_lease_min", 10)),
+        focus_lease=timedelta(minutes=raw.get("focus_lease_min", 1)),
+        roots=roots,
+        titles=[(re.compile(rule["pattern"]), rule["kind"], rule.get("project")) for rule in raw.get("title", [])],
+    )
+
+
+def resolve_cwd(config: Config, cwd: str | None) -> Bucket | None:
+    if cwd is None:
+        return None
+    path = Path(cwd)
+    for root, kind in config.roots:
+        if path.is_relative_to(root):
+            below = path.relative_to(root).parts
+            # ponytail: the project ends at the first dot, so assets.8467 is assets; a dotted repo name needs its own root
+            return Bucket(kind, below[0].split(".")[0] if below else "general")
+    return None
+
+
+def resolve_title(config: Config, title: str | None) -> Bucket | None:
+    if title is None:
+        return None
+    for pattern, kind, project in config.titles:
+        match = pattern.search(title)
+        if match:
+            return Bucket(kind, project or match.group("project"))
+    return None
+
+
+def is_repo(bucket: Bucket) -> bool:
+    return bucket.project not in ("general", "other")
 
 
 def format_utc(moment: datetime) -> str:
@@ -101,6 +142,8 @@ def attribute(config: Config, events: list[Event], start: datetime, end: datetim
     minutes: defaultdict[Bucket, float] = defaultdict(float)
     idle = False
     last_poll: datetime | None = None
+    ambient: Bucket | None = None
+    leases: dict[Bucket, datetime] = {}
     pending = 0
     minute = start
     # ponytail: O(minutes x spans) scan per report; a month is 43k minutes, fine for years of data
@@ -114,13 +157,26 @@ def attribute(config: Config, events: list[Event], start: datetime, end: datetim
                 idle = False
             elif event["ev"] == "focus":
                 last_poll = ts
+                bucket = resolve_cwd(config, event["cwd"]) or resolve_title(config, event["title"])
+                if bucket is not None and is_repo(bucket):
+                    leases[bucket] = ts + config.focus_lease
+                ambient = bucket if bucket is not None and not is_repo(bucket) else None
+            elif event["ev"] == "beat":
+                bucket = resolve_cwd(config, event["cwd"])
+                if bucket is not None and is_repo(bucket):
+                    leases[bucket] = ts + config.beat_lease
+        leases = {bucket: expiry for bucket, expiry in leases.items() if expiry > minute}
         # ponytail: the latest span covering a minute wins wholesale; no partial merge with sensor minutes
         booked = next((bucket for span_start, span_end, bucket in spans if span_start <= minute < span_end), None)
         if booked is not None:
             if booked.kind != "off":
                 minutes[booked] += 1.0
         elif not idle and last_poll is not None and minute - last_poll < config.poll_stale:
-            minutes[OTHER] += 1.0
+            if leases:
+                for bucket in leases:
+                    minutes[bucket] += 1 / len(leases)
+            else:
+                minutes[ambient or OTHER] += 1.0
         minute += timedelta(minutes=1)
     return minutes
 
