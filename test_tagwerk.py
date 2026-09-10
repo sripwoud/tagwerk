@@ -900,6 +900,6 @@ def test_claude_hooks_fragment_beats_on_four_events_with_a_5s_timeout() -> None:
 def test_pi_extension_spawns_tagwerk_by_absolute_path_on_four_events() -> None:
     text = (CONTRIB / "pi/tagwerk.ts").read_text()
     for event in ("session_start", "turn_start", "tool_execution_end", "agent_settled"):
-        assert f'pi.on("{event}", beat)' in text
-    assert 'join(homedir(), ".local", "bin", "tagwerk")' in text
-    assert '["beat", "pi", "--cwd", ctx.cwd]' in text
+        assert f"pi.on('{event}', beat)" in text
+    assert "join(homedir(), '.local', 'bin', 'tagwerk')" in text
+    assert "['beat', 'pi', '--cwd', ctx.cwd]" in text
