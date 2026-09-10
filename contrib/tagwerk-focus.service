@@ -1,0 +1,12 @@
+[Unit]
+Description=tagwerk focus poller
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionEnvironment=HYPRLAND_INSTANCE_SIGNATURE
+
+[Service]
+ExecStart=%h/.local/bin/tagwerk focus
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

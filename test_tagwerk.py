@@ -1,3 +1,4 @@
+import configparser
 import json
 import os
 import re
@@ -652,3 +653,11 @@ def test_focus_live_reads_the_real_kittys_cwd(
     run(capsys, "focus", "--once")
     [poll] = ledger_lines(data_dir)
     assert Path(poll["cwd"]).is_dir()
+
+
+def test_focus_unit_restarts_on_failure_inside_the_graphical_session() -> None:
+    unit = configparser.ConfigParser(interpolation=None)
+    unit.read(SCRIPT.with_name("contrib") / "tagwerk-focus.service")
+    assert unit["Service"]["ExecStart"] == "%h/.local/bin/tagwerk focus"
+    assert unit["Service"]["Restart"] == "on-failure"
+    assert unit["Unit"]["PartOf"] == unit["Install"]["WantedBy"] == "graphical-session.target"
