@@ -885,3 +885,21 @@ def test_hypridle_config_marks_sleep_and_one_150s_listener_without_locking() -> 
     assert "on-resume = tagwerk active" in text
     assert "ignore_dbus_inhibit = false" in text
     assert "lock_cmd" not in text
+
+
+def test_claude_hooks_fragment_beats_on_four_events_with_a_5s_timeout() -> None:
+    hooks = json.loads((CONTRIB / "claude-hooks.json").read_text())["hooks"]
+    assert set(hooks) == {"SessionStart", "UserPromptSubmit", "PostToolUse", "Stop"}
+    commands = [hook for groups in hooks.values() for group in groups for hook in group["hooks"]]
+    assert len(commands) == 4
+    assert all(hook["command"].startswith("tagwerk beat claude") for hook in commands)
+    assert all(hook["timeout"] == 5 for hook in commands)
+    assert hooks["PostToolUse"][0]["matcher"] == "*"
+
+
+def test_pi_extension_spawns_tagwerk_by_absolute_path_on_four_events() -> None:
+    text = (CONTRIB / "pi/tagwerk.ts").read_text()
+    for event in ("session_start", "turn_start", "tool_execution_end", "agent_settled"):
+        assert f'pi.on("{event}", beat)' in text
+    assert 'join(homedir(), ".local", "bin", "tagwerk")' in text
+    assert '["beat", "pi", "--cwd", ctx.cwd]' in text
