@@ -8,10 +8,14 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
-Bucket = tuple[str, str]
 Event = dict[str, Any]
+
+
+class Bucket(NamedTuple):
+    kind: str
+    project: str
 
 
 @dataclass(frozen=True)
@@ -30,108 +34,126 @@ def load_config(path: Path) -> Config:
     return Config(data_dir=Path(data_dir).expanduser(), roots=roots)
 
 
-def iso_z(ts: datetime) -> str:
-    return ts.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+def format_utc(moment: datetime) -> str:
+    return moment.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def month_file(cfg: Config, day: date) -> Path:
-    return cfg.data_dir / f"{day:%Y-%m}.jsonl"
+def month_file(config: Config, day: date) -> Path:
+    return config.data_dir / f"{day:%Y-%m}.jsonl"
 
 
-def append_event(cfg: Config, event: Event) -> None:
+def append_event(config: Config, event: Event) -> None:
     now = datetime.now(UTC)
-    event["ts"] = iso_z(now)
-    cfg.data_dir.mkdir(parents=True, exist_ok=True)
-    with month_file(cfg, now).open("a") as ledger:
+    event["ts"] = format_utc(now)
+    config.data_dir.mkdir(parents=True, exist_ok=True)
+    with month_file(config, now).open("a") as ledger:
         ledger.write(json.dumps(event) + "\n")
 
 
-def read_events(cfg: Config, start: datetime, end: datetime) -> list[Event]:
+def read_ledger_file(path: Path) -> list[Event]:
+    events: list[Event] = []
+    with path.open() as ledger:
+        for lineno, line in enumerate(ledger, 1):
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError as err:
+                raise SystemExit(f"{path}:{lineno}: malformed ledger line: {err}") from err
+    return events
+
+
+def read_events(config: Config, start: datetime, end: datetime) -> list[Event]:
     events: list[Event] = []
     month = (start - timedelta(days=1)).date().replace(day=1)
     while month <= end.date():
-        path = month_file(cfg, month)
+        path = month_file(config, month)
         if path.is_file():
-            with path.open() as ledger:
-                for lineno, line in enumerate(ledger, 1):
-                    try:
-                        events.append(json.loads(line))
-                    except json.JSONDecodeError as err:
-                        raise SystemExit(f"{path}:{lineno}: malformed ledger line: {err}") from err
+            events += read_ledger_file(path)
         month = (month + timedelta(days=32)).replace(day=1)
     return sorted(events, key=lambda event: event["ts"])
 
 
 def attribute(events: list[Event], start: datetime, end: datetime) -> dict[Bucket, float]:
     spans = [
-        (datetime.fromisoformat(e["start"]), datetime.fromisoformat(e["end"]), (e["kind"], e["project"]))
-        for e in events
-        if e["ev"] == "span"
+        (
+            datetime.fromisoformat(event["start"]),
+            datetime.fromisoformat(event["end"]),
+            Bucket(event["kind"], event["project"]),
+        )
+        for event in events
+        if event["ev"] == "span"
     ]
     spans.reverse()
     minutes: defaultdict[Bucket, float] = defaultdict(float)
     minute = start
+    # ponytail: O(minutes x spans) scan per report; a month is 43k minutes, fine for years of data
     while minute < end:
         for span_start, span_end, bucket in spans:
             if span_start <= minute < span_end:
-                if bucket[0] != "off":
+                # ponytail: the latest span covering a minute wins wholesale; no partial merge with sensor minutes
+                if bucket.kind != "off":
                     minutes[bucket] += 1.0
                 break
         minute += timedelta(minutes=1)
     return minutes
 
 
-def today_local() -> date:
+def local_today() -> date:
     return datetime.now(UTC).astimezone().date()
 
 
 def local_day(day: date) -> tuple[datetime, datetime]:
-    start = datetime.combine(day, time.min).astimezone()
-    end = datetime.combine(day + timedelta(days=1), time.min).astimezone()
-    return start.astimezone(UTC), end.astimezone(UTC)
+    start = datetime.combine(day, time.min).astimezone(UTC)
+    end = datetime.combine(day + timedelta(days=1), time.min).astimezone(UTC)
+    return start, end
 
 
-def local_time(text: str) -> datetime:
-    local = datetime.fromisoformat(text) if "T" in text else datetime.combine(today_local(), time.fromisoformat(text))
-    return local.astimezone().astimezone(UTC)
+def parse_local(text: str) -> datetime:
+    local = datetime.fromisoformat(text) if "T" in text else datetime.combine(local_today(), time.fromisoformat(text))
+    return local.astimezone(UTC)
 
 
-def hours_mm(minutes: float) -> str:
+def format_hours(minutes: float) -> str:
     whole = round(minutes)
     return f"{whole // 60}:{whole % 60:02d}"
 
 
 def render_table(minutes: dict[Bucket, float]) -> str:
-    rows = sorted(minutes.items(), key=lambda item: (item[0][0] != "work", -item[1], item[0][1]))
-    cells = [(project, hours_mm(m)) for (_, project), m in rows]
-    cells.append(("work", hours_mm(sum(m for (kind, _), m in rows if kind == "work"))))
-    cells.append(("total", hours_mm(sum(minutes.values()))))
+    rows = sorted(minutes.items(), key=lambda row: (row[0].kind != "work", -row[1], row[0].project))
+    cells = [(bucket.project, format_hours(credited)) for bucket, credited in rows]
+    cells.append(("work", format_hours(sum(credited for bucket, credited in rows if bucket.kind == "work"))))
+    cells.append(("total", format_hours(sum(minutes.values()))))
     name_width = max(len(name) for name, _ in cells)
-    time_width = max(len(hhmm) for _, hhmm in cells)
-    return "\n".join(f"{name:<{name_width}}  {hhmm:>{time_width}}" for name, hhmm in cells)
+    hours_width = max(len(hours) for _, hours in cells)
+    return "\n".join(f"{name:<{name_width}}  {hours:>{hours_width}}" for name, hours in cells)
 
 
-def cmd_fix(cfg: Config, start: datetime, end: datetime, project: str, kind: str) -> None:
+def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: str) -> None:
     if end <= start:
         raise SystemExit(
             f"end must be after start: {start.astimezone():%Y-%m-%dT%H:%M} to {end.astimezone():%Y-%m-%dT%H:%M}"
         )
-    append_event(
-        cfg, {"ev": "span", "start": iso_z(start), "end": iso_z(end), "kind": kind, "project": project, "src": "fix"}
-    )
+    span = {
+        "ev": "span",
+        "start": format_utc(start),
+        "end": format_utc(end),
+        "kind": kind,
+        "project": project,
+        "src": "fix",
+    }
+    append_event(config, span)
 
 
-def cmd_today(cfg: Config) -> None:
-    start, end = local_day(today_local())
-    print(render_table(attribute(read_events(cfg, start, end), start, end)))
+def cmd_today(config: Config) -> None:
+    start, end = local_day(local_today())
+    print(render_table(attribute(read_events(config, start, end), start, end)))
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="tagwerk", description="Passive work-hours ledger for one Linux desktop.")
     commands = parser.add_subparsers(dest="command", required=True)
     fix = commands.add_parser("fix", help="book a span by hand; it overrides the sensors for its range")
-    fix.add_argument("start", type=local_time, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
-    fix.add_argument("end", type=local_time, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
+    fix.add_argument("start", type=parse_local, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
+    fix.add_argument("end", type=parse_local, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
     fix.add_argument("project")
     kind = fix.add_mutually_exclusive_group()
     kind.add_argument(
@@ -143,11 +165,11 @@ def main(argv: list[str]) -> int:
     fix.set_defaults(kind="work")
     commands.add_parser("today", help="hours per project for the local day")
     args = parser.parse_args(argv)
-    cfg = load_config(Path(os.environ.get("TAGWERK_CONFIG", "~/.config/tagwerk/config.toml")).expanduser())
+    config = load_config(Path(os.environ.get("TAGWERK_CONFIG", "~/.config/tagwerk/config.toml")).expanduser())
     if args.command == "fix":
-        cmd_fix(cfg, args.start, args.end, args.project, args.kind)
+        cmd_fix(config, args.start, args.end, args.project, args.kind)
     else:
-        cmd_today(cfg)
+        cmd_today(config)
     return 0
 
 

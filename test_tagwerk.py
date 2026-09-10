@@ -60,13 +60,13 @@ def test_fix_appends_one_utc_span_line_to_the_utc_month_file(
     assert ledger.name == f"{datetime.now(UTC):%Y-%m}.jsonl"
     [line] = ledger.read_text().splitlines()
     span = json.loads(line)
-    assert {k: span[k] for k in ("ev", "kind", "project", "src")} == {
+    assert {key: span[key] for key in ("ev", "kind", "project", "src")} == {
         "ev": "span",
         "kind": "work",
         "project": "assets",
         "src": "fix",
     }
-    assert all(span[k].endswith("Z") for k in ("ts", "start", "end"))
+    assert all(span[key].endswith("Z") for key in ("ts", "start", "end"))
     start, end = datetime.fromisoformat(span["start"]), datetime.fromisoformat(span["end"])
     assert end - start == timedelta(minutes=90)
     assert start.astimezone().strftime("%H:%M") == "09:00"
