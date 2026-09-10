@@ -17,13 +17,17 @@ Event = dict[str, Any]
 @dataclass(frozen=True)
 class Config:
     data_dir: Path
+    roots: list[tuple[Path, str]]
 
 
 def load_config(path: Path) -> Config:
     if not path.is_file():
         raise SystemExit(f"config file not found: {path}")
     raw = tomllib.loads(path.read_text())
-    return Config(data_dir=Path(raw["data_dir"]))
+    data_dir = os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir", "~/.local/share/tagwerk")
+    roots = [(Path(prefix).expanduser(), kind) for prefix, kind in raw.get("roots", {}).items()]
+    roots.sort(key=lambda root: len(str(root[0])), reverse=True)
+    return Config(data_dir=Path(data_dir).expanduser(), roots=roots)
 
 
 def iso_z(ts: datetime) -> str:

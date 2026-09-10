@@ -118,3 +118,36 @@ def test_today_fails_on_a_malformed_line_naming_file_and_line(
         broken.write("{not json\n")
     with pytest.raises(SystemExit, match=re.escape(f"{ledger}:2")):
         tagwerk.main(["today"])
+
+
+def test_data_dir_env_overrides_config(
+    data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    monkeypatch.setenv("TAGWERK_DATA_DIR", str(elsewhere))
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    assert not data_dir.exists()
+    assert len(list(elsewhere.glob("*.jsonl"))) == 1
+
+
+def test_data_dir_defaults_under_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text('[roots]\n"~/code" = "personal"\n')
+    monkeypatch.setenv("TAGWERK_CONFIG", str(config))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    assert len(list((tmp_path / ".local/share/tagwerk").glob("*.jsonl"))) == 1
+
+
+def test_example_config_books_into_the_expanded_home(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("TAGWERK_CONFIG", str(SCRIPT.with_name("config.example.toml")))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    assert run(capsys, "today") == [["assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
+    assert len(list((tmp_path / ".local/share/tagwerk").glob("*.jsonl"))) == 1

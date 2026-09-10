@@ -1,0 +1,7 @@
+# Copy to ~/.config/tagwerk/config.toml, or point TAGWERK_CONFIG at a copy.
+data_dir = "~/.local/share/tagwerk" # TAGWERK_DATA_DIR overrides this
+
+[roots] # path prefix to kind; the longest matching root wins
+"~/code/work" = "work"
+"~/memories/work" = "work"
+"~/code" = "personal"
