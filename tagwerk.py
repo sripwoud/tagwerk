@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tomllib
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
@@ -231,6 +232,23 @@ def render_table(minutes: dict[Bucket, float]) -> str:
     return "\n".join(f"{name:<{name_width}}  {hours:>{hours_width}}" for name, hours in cells)
 
 
+def quarter_hours(minutes: dict[str, float]) -> dict[str, float]:
+    quarters = {project: int(credited // 15) for project, credited in minutes.items()}
+    spare = round(sum(minutes.values()) / 15) - sum(quarters.values())
+    for project in sorted(minutes, key=lambda project: (-(minutes[project] % 15), project))[:spare]:
+        quarters[project] += 1
+    return {project: count / 4 for project, count in quarters.items()}
+
+
+def render_invoice(minutes: dict[Bucket, float]) -> str:
+    hours = quarter_hours({bucket.project: credited for bucket, credited in minutes.items() if bucket.kind == "work"})
+    rows = sorted(hours.items(), key=lambda row: (-row[1], row[0]))
+    lines = ["| Project | Hours |", "| --- | ---: |"]
+    lines += [f"| {project} | {booked:.2f} |" for project, booked in rows]
+    lines.append(f"| **Total** | **{sum(hours.values()):.2f}** |")
+    return "\n".join(lines)
+
+
 def append_span(config: Config, start: datetime, end: datetime, kind: str, project: str, src: str) -> None:
     span = {
         "ev": "span",
@@ -339,8 +357,8 @@ def cmd_beat(config: Config, src: str, cwd: str | None) -> None:
     stamp.touch()
 
 
-def report(config: Config, start: datetime, end: datetime) -> None:
-    print(render_table(attribute(config, read_events(config, start, end), start, end)))
+def report(config: Config, start: datetime, end: datetime, render: Callable[[dict[Bucket, float]], str]) -> None:
+    print(render(attribute(config, read_events(config, start, end), start, end)))
 
 
 def main(argv: list[str]) -> int:
@@ -361,6 +379,8 @@ def main(argv: list[str]) -> int:
     commands.add_parser("today", help="hours per project for the local day")
     month = commands.add_parser("month", help="hours per project for a calendar month")
     month.add_argument("month", nargs="?", type=parse_month, default=None, help="YYYY-MM, default the current month")
+    invoice = commands.add_parser("invoice", help="markdown table of work hours per project in quarter hours")
+    invoice.add_argument("month", type=parse_month, help="YYYY-MM")
     focus = commands.add_parser("focus", help="poll the focused window and kitty cwd into the ledger")
     focus.add_argument("--once", action="store_true", help="one poll, then exit")
     import_timew = commands.add_parser("import-timew", help="one-shot import of the timewarrior export as spans")
@@ -382,13 +402,15 @@ def main(argv: list[str]) -> int:
     elif args.command in ("idle", "active"):
         append_event(config, {"ev": args.command})
     elif args.command == "month":
-        report(config, *local_month(args.month or local_today().replace(day=1)))
+        report(config, *local_month(args.month or local_today().replace(day=1)), render_table)
+    elif args.command == "invoice":
+        report(config, *local_month(args.month), render_invoice)
     elif args.command == "focus":
         cmd_focus(config, args.once)
     elif args.command == "import-timew":
         cmd_import_timew(config, args.work_tag, args.file)
     else:
-        report(config, *local_day(local_today()))
+        report(config, *local_day(local_today()), render_table)
     return 0
 
 
