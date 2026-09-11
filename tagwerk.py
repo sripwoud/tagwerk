@@ -337,7 +337,9 @@ def render_invoice(minutes: dict[Bucket, float]) -> str:
 def colored() -> bool:
     if os.environ.get("FORCE_COLOR"):
         return True
-    return not os.environ.get("NO_COLOR") and sys.stdout.isatty()
+    if os.environ.get("NO_COLOR") or os.environ.get("TERM") == "dumb":
+        return False
+    return sys.stdout.isatty() and sys.stderr.isatty()
 
 
 def paint(text: str, code: str) -> str:
@@ -521,6 +523,9 @@ def cmd_month(config: Config, first: date) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="tagwerk", description="Passive work-hours ledger for one Linux desktop.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
+    parser.set_defaults(no_color=False)
+    plain = argparse.ArgumentParser(add_help=False)
+    plain.add_argument("--no-color", action="store_true", help="disable colour even on a terminal")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="write the commented config template; refuses to overwrite an existing one")
     fix = commands.add_parser("fix", help="book a span by hand; it overrides the sensors for its range")
@@ -534,14 +539,20 @@ def main(argv: list[str]) -> int:
         help="work is paid and invoiced, fixed is paid and charted only, personal is charted only, "
         "off removes the range from every report",
     )
-    commands.add_parser("today", help="hours per kind/project for the local day")
-    week = commands.add_parser("week", help="one bar per day, Monday to Sunday, with the day and week caps")
+    commands.add_parser("today", parents=[plain], help="hours per kind/project for the local day")
+    week = commands.add_parser(
+        "week", parents=[plain], help="one bar per day, Monday to Sunday, with the day and week caps"
+    )
     week.add_argument("-n", type=int, default=0, metavar="N", help="weeks back, default 0")
     month = commands.add_parser(
-        "month", help="one bar per ISO week, counting only its days inside the month, then hours per kind/project"
+        "month",
+        parents=[plain],
+        help="one bar per ISO week, counting only its days inside the month, then hours per kind/project",
     )
     month.add_argument("month", nargs="?", type=parse_month, default=None, help="YYYY-MM, default the current month")
-    invoice = commands.add_parser("invoice", help="markdown table of work hours per project in quarter hours")
+    invoice = commands.add_parser(
+        "invoice", parents=[plain], help="markdown table of work hours per project in quarter hours"
+    )
     invoice.add_argument("month", type=parse_month, help="YYYY-MM")
     focus = commands.add_parser("focus", help="poll the focused window and kitty cwd into the ledger")
     focus.add_argument("--once", action="store_true", help="one poll, then exit")
@@ -556,6 +567,8 @@ def main(argv: list[str]) -> int:
     commands.add_parser("idle", help="mark the start of idle, from the hypridle listener or before sleep")
     commands.add_parser("active", help="mark the end of idle, from the hypridle listener or after sleep")
     args = parser.parse_args(argv)
+    if args.no_color:
+        os.environ["NO_COLOR"] = "1"
     config_path = Path(os.environ.get("TAGWERK_CONFIG") or default_config_path()).expanduser()
     if args.command == "init":
         cmd_init(config_path)

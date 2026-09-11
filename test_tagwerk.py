@@ -4,6 +4,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -22,9 +23,10 @@ Event = dict[str, Any]
 
 
 @pytest.fixture(autouse=True)
-def plain_stdout(monkeypatch: pytest.MonkeyPatch) -> None:
+def plain_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.delenv("FORCE_COLOR", raising=False)
+    monkeypatch.delenv("TERM", raising=False)
 
 
 @pytest.fixture
@@ -1248,6 +1250,57 @@ def test_piped_output_carries_escapes_only_under_force_color(
         monkeypatch.setenv(name, value)
     seed(ledger, hours(T0, 2))
     assert ("\033[" in "\n".join(lines(capsys, "week", "-n", WEEK))) is escaped
+
+
+def terminal(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
+
+
+@pytest.mark.parametrize(
+    ("env", "stdout_tty", "stderr_tty", "escaped"),
+    [
+        ({}, True, True, True),
+        ({"NO_COLOR": "1"}, True, True, False),
+        ({"TERM": "dumb"}, True, True, False),
+        ({}, False, True, False),
+        ({}, True, False, False),
+        ({"NO_COLOR": "1", "TERM": "dumb", "FORCE_COLOR": "1"}, False, False, True),
+    ],
+)
+def test_colour_needs_a_terminal_on_both_streams_and_no_opt_out(
+    monkeypatch: pytest.MonkeyPatch, env: dict[str, str], stdout_tty: bool, stderr_tty: bool, escaped: bool
+) -> None:
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: stdout_tty)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: stderr_tty)
+    assert tagwerk.colored() is escaped
+
+
+@pytest.mark.parametrize("command", ["week", "month"])
+def test_no_color_drops_the_escapes_a_terminal_would_have_earned(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    terminal(monkeypatch)
+    assert "\033[" in "\n".join(lines(capsys, command))
+    assert "\033[" not in "\n".join(lines(capsys, command, "--no-color"))
+
+
+@pytest.mark.parametrize("argv", [("today",), ("week",), ("month",), ("invoice", f"{T0:%Y-%m}")])
+def test_no_color_is_accepted_on_every_report_command(
+    data_dir: Path, capsys: pytest.CaptureFixture[str], argv: tuple[str, ...]
+) -> None:
+    assert "\033[" not in "\n".join(lines(capsys, *argv, "--no-color"))
+
+
+def test_force_color_beats_the_no_color_flag(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    assert "\033[" in "\n".join(lines(capsys, "week", "--no-color"))
 
 
 def test_bar_colours_are_stable_per_work_project_blue_for_general_and_grey_for_personal(
