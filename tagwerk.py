@@ -114,6 +114,10 @@ def cmd_init(path: Path) -> None:
     print(f"wrote {path}", file=sys.stderr)
 
 
+def config_path(override: Path | None) -> Path:
+    return (override or Path(os.environ.get("TAGWERK_CONFIG") or default_config_path())).expanduser()
+
+
 def load_config(path: Path, data_dir: Path | None) -> Config:
     if not path.is_file():
         raise SystemExit(f"config file not found: {path}; run tagwerk init")
@@ -564,7 +568,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     parser.add_argument("--config", type=Path, metavar="PATH", help="config file; overrides TAGWERK_CONFIG")
     parser.add_argument("--data-dir", type=Path, metavar="PATH", help="ledger directory; overrides TAGWERK_DATA_DIR")
-    parser.set_defaults(no_color=False)
+    parser.set_defaults(no_color=False, data_dir_rejection=None)
     plain = argparse.ArgumentParser(add_help=False)
     plain.add_argument("--no-color", action="store_true", help="disable colour even on a terminal")
 
@@ -574,7 +578,8 @@ def main(argv: list[str]) -> int:
         choice.add_argument("--ago", type=int, default=0, metavar="N", help=f"{unit}s back, default 0")
 
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("init", help="write the commented config template; refuses to overwrite an existing one")
+    init = commands.add_parser("init", help="write the commented config template; refuses to overwrite an existing one")
+    init.set_defaults(data_dir_rejection="--data-dir does not apply to init; set data_dir in the config it writes")
     fix = commands.add_parser("fix", help="book a span by hand; it overrides the sensors for its range")
     fix.add_argument("start", type=parse_local, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
     fix.add_argument("end", type=parse_local, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
@@ -617,13 +622,13 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if args.no_color:
         os.environ["NO_COLOR"] = "1"
-    config_path = (args.config or Path(os.environ.get("TAGWERK_CONFIG") or default_config_path())).expanduser()
+    if args.data_dir and args.data_dir_rejection:
+        parser.error(args.data_dir_rejection)
+    config_file = config_path(args.config)
     if args.command == "init":
-        if args.data_dir:
-            parser.error("--data-dir does not apply to init; set data_dir in the config it writes")
-        cmd_init(config_path)
+        cmd_init(config_file)
         return 0
-    config = load_config(config_path, args.data_dir)
+    config = load_config(config_file, args.data_dir)
     if args.command == "fix":
         cmd_fix(config, args.start, args.end, args.project, args.kind)
     elif args.command == "beat":
