@@ -131,7 +131,7 @@ def seed(ledger: Path, *events: Event) -> None:
     [
         [],
         ["fix"],
-        ["today"],
+        ["day"],
         ["week"],
         ["month"],
         ["invoice"],
@@ -186,12 +186,12 @@ def test_missing_config_exits_with_its_path(tmp_path: Path, monkeypatch: pytest.
     missing = tmp_path / "nope.toml"
     monkeypatch.setenv("TAGWERK_CONFIG", str(missing))
     with pytest.raises(SystemExit, match=re.escape(str(missing))):
-        tagwerk.main(["today"])
+        tagwerk.main(["day"])
 
 
-def test_fix_then_today_shows_booked_hours(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_fix_then_day_shows_booked_hours(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
     run(capsys, "fix", "09:00", "10:30", "assets")
-    assert run(capsys, "today") == [["work/assets", "1:30"], ["work", "1:30"], ["total", "1:30"]]
+    assert run(capsys, "day") == [["work/assets", "1:30"], ["work", "1:30"], ["total", "1:30"]]
 
 
 def test_fix_appends_one_utc_span_line_to_the_utc_month_file(
@@ -224,7 +224,7 @@ def test_fix_for_a_past_month_is_filed_under_that_month(data_dir: Path, capsys: 
 def test_latest_appended_span_wins_on_overlap(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
     run(capsys, "fix", "09:00", "10:00", "assets")
     run(capsys, "fix", "09:30", "10:00", "auberge", "--kind", "personal")
-    assert run(capsys, "today") == [
+    assert run(capsys, "day") == [
         ["work/assets", "0:30"],
         ["personal/auberge", "0:30"],
         ["work", "0:30"],
@@ -237,7 +237,7 @@ def test_personal_rows_follow_work_rows_regardless_of_minutes(
 ) -> None:
     run(capsys, "fix", "09:00", "09:30", "assets")
     run(capsys, "fix", "10:00", "12:00", "auberge", "--kind", "personal")
-    assert run(capsys, "today") == [
+    assert run(capsys, "day") == [
         ["work/assets", "0:30"],
         ["personal/auberge", "2:00"],
         ["work", "0:30"],
@@ -266,7 +266,7 @@ def test_table_rows_name_the_kind_so_two_kinds_general_rows_stay_apart(
 def test_off_span_removes_booked_minutes(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
     run(capsys, "fix", "09:00", "10:00", "assets")
     run(capsys, "fix", "09:30", "10:00", "lunch", "--kind", "off")
-    assert run(capsys, "today") == [["work/assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
+    assert run(capsys, "day") == [["work/assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
 
 
 def test_fix_accepts_an_explicit_local_date(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -274,7 +274,7 @@ def test_fix_accepts_an_explicit_local_date(data_dir: Path, capsys: pytest.Captu
     yesterday = today - timedelta(days=1)
     run(capsys, "fix", f"{today}T09:00", f"{today}T09:45", "assets")
     run(capsys, "fix", f"{yesterday}T09:00", f"{yesterday}T12:00", "assets")
-    assert run(capsys, "today") == [["work/assets", "0:45"], ["work", "0:45"], ["total", "0:45"]]
+    assert run(capsys, "day") == [["work/assets", "0:45"], ["work", "0:45"], ["total", "0:45"]]
 
 
 def test_fix_books_the_named_kind_and_defaults_to_work(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -282,7 +282,7 @@ def test_fix_books_the_named_kind_and_defaults_to_work(data_dir: Path, capsys: p
     run(capsys, "fix", "10:00", "11:00", "assets")
     [ledger] = data_dir.glob("*.jsonl")
     assert [json.loads(line)["kind"] for line in ledger.read_text().splitlines()] == ["fixed", "work"]
-    assert run(capsys, "today") == [
+    assert run(capsys, "day") == [
         ["work/assets", "1:00"],
         ["fixed/auberge", "1:00"],
         ["work", "2:00"],
@@ -307,15 +307,13 @@ def test_fix_rejects_end_at_or_before_start_and_appends_nothing(data_dir: Path, 
     assert not data_dir.exists()
 
 
-def test_today_fails_on_a_malformed_line_naming_file_and_line(
-    data_dir: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_day_fails_on_a_malformed_line_naming_file_and_line(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
     run(capsys, "fix", "09:00", "10:00", "assets")
     [ledger] = data_dir.glob("*.jsonl")
     with ledger.open("a") as broken:
         broken.write("{not json\n")
     with pytest.raises(SystemExit, match=re.escape(f"{ledger}:2")):
-        tagwerk.main(["today"])
+        tagwerk.main(["day"])
 
 
 def test_data_dir_env_overrides_config(
@@ -361,7 +359,7 @@ def test_data_dir_defaults_to_xdg_data_home(
 
 def test_config_defaults_under_home(home: Path) -> None:
     with pytest.raises(SystemExit, match=re.escape(str(home / ".config/tagwerk/config.toml"))):
-        tagwerk.main(["today"])
+        tagwerk.main(["day"])
 
 
 def test_config_defaults_to_xdg_config_home(
@@ -372,7 +370,7 @@ def test_config_defaults_to_xdg_config_home(
     config.write_text(f'data_dir = "{home}/data"\n')
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / "xdg"))
     run(capsys, "fix", "09:00", "10:00", "assets")
-    assert run(capsys, "today") == [["work/assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
+    assert run(capsys, "day") == [["work/assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
 
 
 def test_config_flag_overrides_the_env(
@@ -382,7 +380,7 @@ def test_config_flag_overrides_the_env(
     config.write_text(f'data_dir = "{home}/data"\n')
     monkeypatch.setenv("TAGWERK_CONFIG", str(home / "nope.toml"))
     run(capsys, "--config", str(config), "fix", "09:00", "10:00", "assets")
-    assert run(capsys, "--config", str(config), "today") == [
+    assert run(capsys, "--config", str(config), "day") == [
         ["work/assets", "1:00"],
         ["work", "1:00"],
         ["total", "1:00"],
@@ -417,11 +415,18 @@ def test_init_writes_the_template_once_and_it_books_into_the_expanded_home(
     assert captured.out == ""
     assert captured.err.splitlines() == [f"wrote {config}"]
     run(capsys, "fix", "09:00", "10:00", "assets")
-    assert run(capsys, "today") == [["work/assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
+    assert run(capsys, "day") == [["work/assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
     assert len(list((home / ".local/share/tagwerk").glob("*.jsonl"))) == 1
     with pytest.raises(SystemExit, match=re.escape(str(config))):
         tagwerk.main(["init"])
     assert config.read_text() == tagwerk.CONFIG_TEMPLATE
+
+
+def test_today_is_retired_and_day_replaced_it(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main(["today"])
+    assert raised.value.code
+    assert run(capsys, "day") == [["work", "0:00"], ["total", "0:00"]]
 
 
 def test_month_with_an_empty_ledger_prints_zero_totals(ledger: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -738,7 +743,7 @@ def test_a_root_or_title_rule_outside_the_three_kinds_is_rejected_at_load(
     (home / "config.toml").write_text(f'data_dir = "{home}/data"\n' + rule)
     monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
     with pytest.raises(SystemExit) as raised:
-        tagwerk.main(["today"])
+        tagwerk.main(["day"])
     assert raised.value.code
     assert offender in str(raised.value)
     assert "fix --kind off" in str(raised.value)
@@ -1004,9 +1009,7 @@ def test_import_timew_maps_tags_and_files_spans_under_their_utc_month(
     assert (spans[0]["start"], spans[0]["end"]) == ("2026-03-03T07:30:00Z", "2026-03-03T08:48:42Z")
 
 
-def test_imported_spans_are_reported_by_today(
-    data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_imported_spans_are_reported_by_day(data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     noon = datetime.now(UTC).astimezone().replace(hour=12, minute=0, second=0, microsecond=0)
     export = timew_export(
         tmp_path / "export.json",
@@ -1020,7 +1023,7 @@ def test_imported_spans_are_reported_by_today(
         ],
     )
     run(capsys, "import-timew", "--work-tag", "acme", str(export))
-    assert run(capsys, "today") == [["work/x", "1:00"], ["personal/y", "2:00"], ["work", "1:00"], ["total", "3:00"]]
+    assert run(capsys, "day") == [["work/x", "1:00"], ["personal/y", "2:00"], ["work", "1:00"], ["total", "3:00"]]
 
 
 def test_import_timew_skips_open_intervals(data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -1333,7 +1336,7 @@ def test_no_color_drops_the_escapes_a_terminal_would_have_earned(
     assert "\033[" not in "\n".join(lines(capsys, command, "--no-color"))
 
 
-@pytest.mark.parametrize("argv", [("today",), ("week",), ("month",), ("invoice", f"{T0:%Y-%m}")])
+@pytest.mark.parametrize("argv", [("day",), ("week",), ("month",), ("invoice", f"{T0:%Y-%m}")])
 def test_no_color_is_accepted_on_every_report_command(
     data_dir: Path, capsys: pytest.CaptureFixture[str], argv: tuple[str, ...]
 ) -> None:

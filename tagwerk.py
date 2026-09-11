@@ -541,7 +541,7 @@ def main(argv: list[str]) -> int:
         help="work is paid and invoiced, fixed is paid and charted only, personal is charted only, "
         "off removes the range from every report",
     )
-    commands.add_parser("today", parents=[plain], help="hours per kind/project for the local day")
+    commands.add_parser("day", parents=[plain], help="hours per kind/project for the local day")
     week = commands.add_parser(
         "week", parents=[plain], help="one bar per day, Monday to Sunday, with the day and week caps"
     )
