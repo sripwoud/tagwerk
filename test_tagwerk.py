@@ -923,6 +923,81 @@ def test_a_root_or_title_rule_outside_the_three_kinds_is_rejected_at_load(
     assert "fix --kind off" in str(raised.value)
 
 
+def test_a_rename_folds_the_old_and_new_paths_into_one_project(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (home / "config.toml").write_text(
+        f'data_dir = "{home}/data"\n'
+        f'[roots]\n"{home}/code" = "personal"\n"{home}/code/landing-pages" = "personal"\n'
+        '[rename]\n"carpinteria" = "ma-instalaciones"\n'
+    )
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
+    seed(
+        home / "data",
+        *present(T0, 10),
+        beat(T0, f"{home}/code/landing-pages/carpinteria"),
+        beat(T0 + 5 * MINUTE, f"{home}/code/ma-instalaciones"),
+    )
+    assert table(capsys, "month", "2026-08") == [
+        ["personal/ma-instalaciones", "0:10"],
+        ["work", "0:00"],
+        ["total", "0:10"],
+    ]
+
+
+def test_a_rename_folds_a_title_derived_project(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (home / "config.toml").write_text(
+        f'data_dir = "{home}/data"\n'
+        '[rename]\n"carpinteria" = "ma-instalaciones"\n'
+        "[[title]]\npattern = 'sripwoud/(?P<project>[\\w.-]+)'\nkind = \"personal\"\n"
+    )
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
+    seed(home / "data", *present(T0, 5, title="sripwoud/carpinteria: Fix rounding \u00b7 GitHub"))
+    assert table(capsys, "month", "2026-08") == [
+        ["personal/ma-instalaciones", "0:05"],
+        ["work", "0:00"],
+        ["total", "0:05"],
+    ]
+
+
+def test_a_rename_folds_a_span_booked_under_the_old_name(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (home / "config.toml").write_text(f'data_dir = "{home}/data"\n[rename]\n"carpinteria" = "ma-instalaciones"\n')
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
+    seed(home / "data", span(T0, T0 + 30 * MINUTE, "carpinteria"))
+    assert table(capsys, "month", "2026-08") == [
+        ["work/ma-instalaciones", "0:30"],
+        ["work", "0:30"],
+        ["total", "0:30"],
+    ]
+
+
+@pytest.mark.parametrize("rule", ['[rename]\n"other" = "ma-instalaciones"\n', '[rename]\n"carpinteria" = "general"\n'])
+def test_a_rename_of_or_to_a_catch_all_is_rejected_at_load(
+    home: Path, monkeypatch: pytest.MonkeyPatch, rule: str
+) -> None:
+    (home / "config.toml").write_text(f'data_dir = "{home}/data"\n' + rule)
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main(["day"])
+    assert raised.value.code
+    assert "only a repo can be renamed" in str(raised.value)
+
+
+def test_a_chained_rename_is_rejected_at_load(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (home / "config.toml").write_text(
+        f'data_dir = "{home}/data"\n[rename]\n"carpinteria" = "landing"\n"landing" = "ma-instalaciones"\n'
+    )
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main(["day"])
+    assert raised.value.code
+    assert "point every old name at the current one" in str(raised.value)
+
+
 def test_a_root_of_kind_fixed_books_its_minutes_as_paid(
     home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
