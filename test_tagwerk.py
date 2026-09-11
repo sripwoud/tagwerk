@@ -221,7 +221,7 @@ def test_fix_for_a_past_month_is_filed_under_that_month(data_dir: Path, capsys: 
 
 def test_latest_appended_span_wins_on_overlap(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
     run(capsys, "fix", "09:00", "10:00", "assets")
-    run(capsys, "fix", "09:30", "10:00", "auberge", "--personal")
+    run(capsys, "fix", "09:30", "10:00", "auberge", "--kind", "personal")
     assert run(capsys, "today") == [
         ["work/assets", "0:30"],
         ["personal/auberge", "0:30"],
@@ -234,7 +234,7 @@ def test_personal_rows_follow_work_rows_regardless_of_minutes(
     data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run(capsys, "fix", "09:00", "09:30", "assets")
-    run(capsys, "fix", "10:00", "12:00", "auberge", "--personal")
+    run(capsys, "fix", "10:00", "12:00", "auberge", "--kind", "personal")
     assert run(capsys, "today") == [
         ["work/assets", "0:30"],
         ["personal/auberge", "2:00"],
@@ -263,7 +263,7 @@ def test_table_rows_name_the_kind_so_two_kinds_general_rows_stay_apart(
 
 def test_off_span_removes_booked_minutes(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
     run(capsys, "fix", "09:00", "10:00", "assets")
-    run(capsys, "fix", "09:30", "10:00", "lunch", "--off")
+    run(capsys, "fix", "09:30", "10:00", "lunch", "--kind", "off")
     assert run(capsys, "today") == [["work/assets", "0:30"], ["work", "0:30"], ["total", "0:30"]]
 
 
@@ -273,6 +273,26 @@ def test_fix_accepts_an_explicit_local_date(data_dir: Path, capsys: pytest.Captu
     run(capsys, "fix", f"{today}T09:00", f"{today}T09:45", "assets")
     run(capsys, "fix", f"{yesterday}T09:00", f"{yesterday}T12:00", "assets")
     assert run(capsys, "today") == [["work/assets", "0:45"], ["work", "0:45"], ["total", "0:45"]]
+
+
+def test_fix_books_the_named_kind_and_defaults_to_work(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run(capsys, "fix", "09:00", "10:00", "auberge", "--kind", "fixed")
+    run(capsys, "fix", "10:00", "11:00", "assets")
+    [ledger] = data_dir.glob("*.jsonl")
+    assert [json.loads(line)["kind"] for line in ledger.read_text().splitlines()] == ["fixed", "work"]
+    assert run(capsys, "today") == [
+        ["work/assets", "1:00"],
+        ["fixed/auberge", "1:00"],
+        ["work", "2:00"],
+        ["total", "2:00"],
+    ]
+
+
+def test_fix_rejects_a_kind_outside_the_four_and_appends_nothing(data_dir: Path) -> None:
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main(["fix", "09:00", "10:00", "x", "--kind", "bogus"])
+    assert raised.value.code
+    assert not data_dir.exists()
 
 
 @pytest.mark.parametrize(("start", "end"), [("15:00", "14:00"), ("14:00", "14:00")])
@@ -399,7 +419,7 @@ def test_invoice_rows_are_quarter_hours_summing_to_the_rounded_total(
 
 def test_invoice_excludes_personal_minutes(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
     run(capsys, "fix", "09:00", "10:00", "assets")
-    run(capsys, "fix", "10:00", "11:00", "auberge", "--personal")
+    run(capsys, "fix", "10:00", "11:00", "auberge", "--kind", "personal")
     month = datetime.now(UTC).astimezone().strftime("%Y-%m")
     assert lines(capsys, "invoice", month) == [
         "| Project | Hours |",

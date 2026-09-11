@@ -44,6 +44,7 @@ class Bucket(NamedTuple):
 
 OTHER = Bucket("personal", "other")
 PAID = ("work", "fixed")  # both count toward the caps; only work reaches the invoice
+KINDS = (*PAID, "personal", "off")
 TitleRule = tuple[re.Pattern[str], str, str | None]
 
 
@@ -517,14 +518,13 @@ def main(argv: list[str]) -> int:
     fix.add_argument("start", type=parse_local, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
     fix.add_argument("end", type=parse_local, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
     fix.add_argument("project")
-    kind = fix.add_mutually_exclusive_group()
-    kind.add_argument(
-        "--personal", dest="kind", action="store_const", const="personal", help="chart only, never invoiced"
+    fix.add_argument(
+        "--kind",
+        choices=KINDS,
+        default="work",
+        help="work is paid and invoiced, fixed is paid and charted only, personal is charted only, "
+        "off removes the range from every report",
     )
-    kind.add_argument(
-        "--off", dest="kind", action="store_const", const="off", help="remove the range from every report"
-    )
-    fix.set_defaults(kind="work")
     commands.add_parser("today", help="hours per project for the local day")
     week = commands.add_parser("week", help="one bar per day, Monday to Sunday, with the day and week caps")
     week.add_argument("-n", type=int, default=0, metavar="N", help="weeks back, default 0")
