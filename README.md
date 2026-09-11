@@ -119,7 +119,7 @@ tagwerk week -n 1
 tagwerk invoice 2026-08
 ```
 
-`TAGWERK_CONFIG` and `TAGWERK_DATA_DIR` override the config path and the data directory. `NO_COLOR` disables colour, `FORCE_COLOR` forces it; colour is off when stdout is not a terminal.
+`TAGWERK_CONFIG` and `TAGWERK_DATA_DIR` override the config path and the data directory. Reports colour only when both stdout and stderr are terminals; `--no-color`, `NO_COLOR` and `TERM=dumb` each turn it off, and `FORCE_COLOR` overrides all three.
 
 ## Attribution notes
 
