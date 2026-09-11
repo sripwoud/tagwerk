@@ -675,12 +675,16 @@ def test_an_off_span_removes_present_minutes(home: Path, ledger: Path, capsys: p
 
 @pytest.mark.parametrize(
     ("rule", "offender"),
-    [('[roots]\n"{home}/Games" = "off"\n', "Games"), ('[[title]]\npattern = "Steam"\nkind = "off"\n', "Steam")],
+    [
+        ('[roots]\n"~/Games" = "off"\n', "~/Games"),
+        ('[[title]]\npattern = "Steam"\nkind = "off"\n', "Steam"),
+        ('[roots]\n"~/code" = "wrok"\n', "~/code"),
+    ],
 )
-def test_a_root_or_title_rule_of_kind_off_is_rejected_at_load(
+def test_a_root_or_title_rule_outside_the_three_kinds_is_rejected_at_load(
     home: Path, monkeypatch: pytest.MonkeyPatch, rule: str, offender: str
 ) -> None:
-    (home / "config.toml").write_text(f'data_dir = "{home}/data"\n' + rule.format(home=home))
+    (home / "config.toml").write_text(f'data_dir = "{home}/data"\n' + rule)
     monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
     with pytest.raises(SystemExit) as raised:
         tagwerk.main(["today"])
