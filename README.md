@@ -11,7 +11,7 @@ Passive work-hours ledger for one Linux desktop running Hyprland, kitty and Omar
 | Agent hooks  | Claude Code hooks and a pi extension run `tagwerk beat` with the agent's cwd                         |
 | Ledger       | `~/.local/share/tagwerk/YYYY-MM.jsonl`, append-only, UTC timestamps                                  |
 | Attribution  | a present minute is split evenly across leased repos, else the ambient bucket, else `personal/other` |
-| Reports      | `today`, `week`, `month`, `invoice`; `fix` appends a span                                            |
+| Reports      | `day`, `week`, `month`, `invoice`; `fix` appends a span                                              |
 
 Vocabulary: `CONTEXT.md`. Decisions with their trade-offs: `docs/adr/`. Spec and tickets: [issue #4](https://github.com/sripwoud/tagwerk/issues/4).
 
@@ -69,10 +69,10 @@ After 10 minutes with a kitty window focused for part of them:
 ```sh
 systemctl --user status tagwerk-idle.service tagwerk-focus.service
 tail -n 5 ~/.local/share/tagwerk/$(date -u +%Y-%m).jsonl
-tagwerk today
+tagwerk day
 ```
 
-Both units should be `active (running)`. The `focus` lines carry a path in `cwd` while kitty was focused and `null` otherwise, and `today` lists the repo you were in. Leave the machine for three minutes: an `idle` line appears, then `active` when you come back. Poller errors go to `journalctl --user -u tagwerk-focus.service`; systemd restarts it after 5 s.
+Both units should be `active (running)`. The `focus` lines carry a path in `cwd` while kitty was focused and `null` otherwise, and `day` lists the repo you were in. Leave the machine for three minutes: an `idle` line appears, then `active` when you come back. Poller errors go to `journalctl --user -u tagwerk-focus.service`; systemd restarts it after 5 s.
 
 ## Migrating from timewarrior
 
@@ -94,15 +94,15 @@ The sleep hook belongs to no package and runs `timew stop` on every suspend. Tim
 
 ## Commands
 
-Times are local; `HH:MM` means today.
+Times are local; `HH:MM` means today. Every report takes an optional period in its own unit, or `--ago N` counted in that same unit. The two are mutually exclusive. With neither, the report covers the current period.
 
 | Command                                       | Does                                                                                                                         |
 | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | `tagwerk init`                                | write the commented config template to `~/.config/tagwerk/config.toml`; refuses to overwrite                                 |
-| `tagwerk today`                               | hours per `kind/project` for the local day, the paid `work` subtotal, total                                                  |
-| `tagwerk week [-n N]`                         | one bar per day, Monday to Sunday, N weeks back; cap marker, red over the day cap or on a weekend with minutes               |
-| `tagwerk month [YYYY-MM]`                     | one bar per ISO week, then hours per `kind/project`; default the current month                                               |
-| `tagwerk invoice YYYY-MM`                     | markdown table of `work` hours per project in quarter hours; rows sum to the rounded total; `fixed` never appears            |
+| `tagwerk day [YYYY-MM-DD]`                    | hours per `kind/project` for the local day, the paid `work` subtotal, total                                                  |
+| `tagwerk week [YYYY-Www]`                     | one bar per day, Monday to Sunday; cap marker, red over the day cap or on a weekend with minutes                             |
+| `tagwerk month [YYYY-MM]`                     | one bar per ISO week, then hours per `kind/project`                                                                          |
+| `tagwerk invoice [YYYY-MM]`                   | markdown table of `work` hours per project in quarter hours; rows sum to the rounded total; `fixed` never appears            |
 | `tagwerk fix START END PROJECT [--kind KIND]` | book a span that overrides the sensors for its range; `KIND` is `work` (default), `fixed`, `personal` or `off`               |
 | `tagwerk import-timew --work-tag TAG [FILE]`  | one-shot import of the timewarrior export as spans; runs `timew export` when `FILE` is omitted                               |
 | `tagwerk focus [--once]`                      | the poller; `--once` writes one poll and exits                                                                               |
@@ -117,7 +117,7 @@ tagwerk fix 14:00 15:00 assets
 tagwerk fix 09:00 12:00 auberge --kind fixed
 tagwerk fix 2026-09-08T09:00 2026-09-08T10:00 blog --kind personal
 tagwerk fix 12:00 13:00 lunch --kind off
-tagwerk week -n 1
+tagwerk week --ago 1
 tagwerk invoice 2026-08
 tagwerk --config ~/side-gig/tagwerk.toml invoice 2026-08
 ```
