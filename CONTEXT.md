@@ -41,7 +41,7 @@ One of `work`, `fixed`, `personal`, `off`. Work is paid and invoiced, fixed is p
 _Avoid_: category, type, tag, customer, payer
 
 **Paid**:
-A minute of kind `work` or `fixed`. Paid minutes drive the caps; only `work` reaches the invoice.
+A minute of kind `work` or `fixed`. Paid minutes drive the caps; only `work` reaches the invoice. The `today` and `month` tables and the `week` footer label this subtotal `work`, the older of the two paid kinds.
 _Avoid_: billable, chargeable
 
 **Project**:
