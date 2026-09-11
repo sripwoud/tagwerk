@@ -26,6 +26,7 @@ EXAMPLES = """examples:
   tagwerk invoice --ago 1     last month's invoice table
 """
 REPOLL_SEC = 60
+EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 BAR_WIDTH = 24
 DAY_SCALE_H = 12
 WEEK_SCALE_H = 60
@@ -207,14 +208,6 @@ def read_events(data_dir: Path, start: datetime, end: datetime) -> list[Event]:
             events += read_ledger_file(path)
         month = next_month(month)
     return sorted(events, key=lambda event: event["ts"])
-
-
-def holds_span_src(data_dir: Path, src: str) -> bool:
-    return any(
-        event["ev"] == "span" and event["src"] == src
-        for path in sorted(data_dir.glob("*.jsonl"))
-        for event in read_ledger_file(path)
-    )
 
 
 def attribute(config: Config, events: list[Event], start: datetime, end: datetime) -> dict[date, dict[Bucket, float]]:
@@ -439,7 +432,9 @@ def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: 
 
 
 def cmd_import_timew(config: Config, work_tag: str, export: Path | None) -> None:
-    if holds_span_src(config.data_dir, "timew"):
+    # ponytail: EPOCH to now is the whole ledger, one stat per month since 1970 on a command that runs once
+    history = read_events(config.data_dir, EPOCH, datetime.now(UTC))
+    if any(event["ev"] == "span" and event["src"] == "timew" for event in history):
         raise SystemExit(f"{config.data_dir} already holds timew spans; import-timew runs once")
     try:
         text = export.read_text() if export else subprocess.check_output(["timew", "export"], text=True)
