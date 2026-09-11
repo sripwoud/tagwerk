@@ -168,16 +168,18 @@ def format_utc(moment: datetime) -> str:
     return moment.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def month_file(config: Config, day: date) -> Path:
-    return config.data_dir / f"{day:%Y-%m}.jsonl"
+def stamped(event: Event) -> Event:
+    return {"ts": format_utc(datetime.now(UTC)), **event}
 
 
-def append_event(config: Config, event: Event) -> None:
-    now = datetime.now(UTC)
-    event["ts"] = format_utc(now)
-    filed = datetime.fromisoformat(event["start"]) if event["ev"] == "span" else now
-    config.data_dir.mkdir(parents=True, exist_ok=True)
-    with month_file(config, filed).open("a") as ledger:
+def month_file(data_dir: Path, day: date) -> Path:
+    return data_dir / f"{day:%Y-%m}.jsonl"
+
+
+def append_event(data_dir: Path, event: Event) -> None:
+    filed = datetime.fromisoformat(event["start"] if event["ev"] == "span" else event["ts"])
+    data_dir.mkdir(parents=True, exist_ok=True)
+    with month_file(data_dir, filed).open("a") as ledger:
         ledger.write(json.dumps(event) + "\n")
 
 
@@ -196,15 +198,23 @@ def next_month(first: date) -> date:
     return (first + timedelta(days=32)).replace(day=1)
 
 
-def read_events(config: Config, start: datetime, end: datetime) -> list[Event]:
+def read_events(data_dir: Path, start: datetime, end: datetime) -> list[Event]:
     events: list[Event] = []
     month = (start - timedelta(days=1)).date().replace(day=1)
     while month <= end.date():
-        path = month_file(config, month)
+        path = month_file(data_dir, month)
         if path.is_file():
             events += read_ledger_file(path)
         month = next_month(month)
     return sorted(events, key=lambda event: event["ts"])
+
+
+def holds_span_src(data_dir: Path, src: str) -> bool:
+    return any(
+        event["ev"] == "span" and event["src"] == src
+        for path in sorted(data_dir.glob("*.jsonl"))
+        for event in read_ledger_file(path)
+    )
 
 
 def attribute(config: Config, events: list[Event], start: datetime, end: datetime) -> dict[date, dict[Bucket, float]]:
@@ -406,16 +416,18 @@ def bar_line(label: str, minutes: dict[Bucket, float], scale_h: float, cap_h: fl
     )
 
 
-def append_span(config: Config, start: datetime, end: datetime, kind: str, project: str, src: str) -> None:
-    span = {
-        "ev": "span",
-        "start": format_utc(start),
-        "end": format_utc(end),
-        "kind": kind,
-        "project": project,
-        "src": src,
-    }
-    append_event(config, span)
+def append_span(data_dir: Path, start: datetime, end: datetime, kind: str, project: str, src: str) -> None:
+    span = stamped(
+        {
+            "ev": "span",
+            "start": format_utc(start),
+            "end": format_utc(end),
+            "kind": kind,
+            "project": project,
+            "src": src,
+        }
+    )
+    append_event(data_dir, span)
 
 
 def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: str) -> None:
@@ -423,15 +435,11 @@ def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: 
         raise SystemExit(
             f"end must be after start: {start.astimezone():%Y-%m-%dT%H:%M} to {end.astimezone():%Y-%m-%dT%H:%M}"
         )
-    append_span(config, start, end, kind, project, "fix")
+    append_span(config.data_dir, start, end, kind, project, "fix")
 
 
 def cmd_import_timew(config: Config, work_tag: str, export: Path | None) -> None:
-    if any(
-        event["ev"] == "span" and event["src"] == "timew"
-        for path in config.data_dir.glob("*.jsonl")
-        for event in read_ledger_file(path)
-    ):
+    if holds_span_src(config.data_dir, "timew"):
         raise SystemExit(f"{config.data_dir} already holds timew spans; import-timew runs once")
     try:
         text = export.read_text() if export else subprocess.check_output(["timew", "export"], text=True)
@@ -444,7 +452,7 @@ def cmd_import_timew(config: Config, work_tag: str, export: Path | None) -> None
         project = next((tag.removeprefix("project:") for tag in tags if tag.startswith("project:")), "general")
         kind = "work" if work_tag in tags else "personal"
         start, end = datetime.fromisoformat(interval["start"]), datetime.fromisoformat(interval["end"])
-        append_span(config, start, end, kind, project, "timew")
+        append_span(config.data_dir, start, end, kind, project, "timew")
     print(len(closed))
 
 
@@ -492,7 +500,8 @@ def cmd_focus(config: Config, once: bool) -> None:
             current = (window_class, title, cwd)
             # ponytail: poll_sec granularity; Hyprland socket2 events would be finer but cannot see cd
             if current != last or monotonic() - last_write >= REPOLL_SEC:
-                append_event(config, {"ev": "focus", "class": window_class, "title": title, "cwd": cwd})
+                event = stamped({"ev": "focus", "class": window_class, "title": title, "cwd": cwd})
+                append_event(config.data_dir, event)
                 last, last_write = current, monotonic()
         if once:
             return
@@ -509,13 +518,13 @@ def cmd_beat(config: Config, src: str, cwd: str | None) -> None:
     stamp = Path(os.environ["XDG_RUNTIME_DIR"]) / "tagwerk" / f"{src}-{hashlib.sha1(cwd.encode()).hexdigest()[:12]}"
     if stamp.exists() and datetime.now(UTC) - datetime.fromtimestamp(stamp.stat().st_mtime, UTC) < config.beat_throttle:
         return
-    append_event(config, {"ev": "beat", "src": src, "cwd": cwd})
+    append_event(config.data_dir, stamped({"ev": "beat", "src": src, "cwd": cwd}))
     stamp.parent.mkdir(parents=True, exist_ok=True)
     stamp.touch()
 
 
 def credited_days(config: Config, start: datetime, end: datetime) -> dict[date, dict[Bucket, float]]:
-    return attribute(config, read_events(config, start, end), start, end)
+    return attribute(config, read_events(config.data_dir, start, end), start, end)
 
 
 def report(config: Config, start: datetime, end: datetime, render: Callable[[dict[Bucket, float]], str]) -> None:
@@ -624,7 +633,7 @@ def main(argv: list[str]) -> int:
     elif args.command == "beat":
         cmd_beat(config, args.src, args.cwd)
     elif args.command in ("idle", "active"):
-        append_event(config, {"ev": args.command})
+        append_event(config.data_dir, stamped({"ev": args.command}))
     elif args.command == "week":
         cmd_week(config, args.period or local_monday(args.ago))
     elif args.command == "month":

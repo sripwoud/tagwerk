@@ -110,15 +110,12 @@ def present(start: datetime, count: int, **window: Any) -> list[Event]:
 
 
 def span(start: datetime, end: datetime, project: str, kind: str = "work") -> Event:
-    return {"ts": stamp(end), "ev": "span", "start": stamp(start), "end": stamp(end), "kind": kind, "project": project}
+    return tagwerk.stamped({"ev": "span", "start": stamp(start), "end": stamp(end), "kind": kind, "project": project})
 
 
 def seed(ledger: Path, *events: Event) -> None:
-    ledger.mkdir(parents=True, exist_ok=True)
     for event in events:
-        filed = event["start"] if event["ev"] == "span" else event["ts"]
-        with (ledger / f"{filed[:7]}.jsonl").open("a") as month:
-            month.write(json.dumps(event) + "\n")
+        tagwerk.append_event(ledger, event)
 
 
 @pytest.mark.parametrize(
