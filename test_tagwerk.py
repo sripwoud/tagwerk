@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -78,11 +78,6 @@ def run(capsys: pytest.CaptureFixture[str], *argv: str) -> list[list[str]]:
 def table(capsys: pytest.CaptureFixture[str], *argv: str) -> list[list[str]]:
     rows = run(capsys, *argv)
     return rows[rows.index([]) + 1 :]
-
-
-def weeks_back(day: date) -> str:
-    today = datetime.now(UTC).astimezone().date()
-    return str((today - timedelta(days=today.weekday()) - (day - timedelta(days=day.weekday()))).days // 7)
 
 
 def hours(day: datetime, count: float, project: str = "assets", kind: str = "work") -> Event:
@@ -534,6 +529,140 @@ def test_invoice_rounds_the_true_total_not_the_per_project_minutes(
         "| checkout | 0.00 |",
         "| **Total** | **0.00** |",
     ]
+
+
+@pytest.mark.parametrize(
+    ("command", "period", "total"),
+    [
+        ("day", "2026-08-05", "1:00"),
+        ("week", "2026-W32", "1:00"),
+        ("month", "2026-08", "1:00"),
+        ("invoice", "2026-08", "1.00"),
+    ],
+)
+def test_every_report_accepts_its_own_period_literal(
+    ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str], command: str, period: str, total: str
+) -> None:
+    seed(ledger, hours(T0, 1))
+    assert total in "\n".join(lines(capsys, command, period))
+
+
+@pytest.mark.parametrize(
+    ("command", "period"),
+    [
+        ("day", "2026-W32"),
+        ("day", "2026-08"),
+        ("week", "2026-08-05"),
+        ("week", "2026-08"),
+        ("month", "2026-08-05"),
+        ("month", "2026-W32"),
+        ("invoice", "2026-08-05"),
+        ("invoice", "2026-W32"),
+    ],
+)
+def test_every_report_rejects_another_units_period_literal(data_dir: Path, command: str, period: str) -> None:
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main([command, period])
+    assert raised.value.code
+
+
+def test_a_week_literal_passed_to_day_names_the_mistake(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main(["day", "2026-W32"])
+    assert raised.value.code
+    assert "'2026-W32' is a week, not a day" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("command", "period", "metavar"),
+    [
+        ("day", "2026-08-05", "YYYY-MM-DD"),
+        ("week", "2026-W32", "YYYY-Www"),
+        ("month", "2026-08", "YYYY-MM"),
+        ("invoice", "2026-08", "YYYY-MM"),
+    ],
+)
+def test_a_period_and_ago_together_are_rejected(
+    data_dir: Path, capsys: pytest.CaptureFixture[str], command: str, period: str, metavar: str
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main([command, period, "--ago", "1"])
+    assert raised.value.code
+    assert f"argument --ago: not allowed with argument {metavar}" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("command", ["day", "week", "month", "invoice"])
+def test_ago_zero_equals_omitting_the_period(data_dir: Path, capsys: pytest.CaptureFixture[str], command: str) -> None:
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    assert lines(capsys, command) == lines(capsys, command, "--ago", "0")
+
+
+def test_ago_one_selects_the_previous_day(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    yesterday = datetime.now(UTC).astimezone().date() - timedelta(days=1)
+    run(capsys, "fix", f"{yesterday}T09:00", f"{yesterday}T10:00", "assets")
+    assert run(capsys, "day", "--ago", "1") == [["work/assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
+    assert run(capsys, "day") == [["work", "0:00"], ["total", "0:00"]]
+
+
+def test_ago_one_selects_the_previous_week(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    today = datetime.now(UTC).astimezone().date()
+    monday = today - timedelta(days=today.weekday() + 7)
+    run(capsys, "fix", f"{monday}T09:00", f"{monday}T10:00", "assets")
+    assert lines(capsys, "week", "--ago", "1")[-1].split()[:2] == ["work", "1:00"]
+    assert lines(capsys, "week")[-1].split()[:2] == ["work", "0:00"]
+
+
+def test_ago_one_selects_the_previous_month(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    last = datetime.now(UTC).astimezone().date().replace(day=1) - timedelta(days=1)
+    run(capsys, "fix", f"{last}T09:00", f"{last}T10:00", "assets")
+    assert table(capsys, "month", "--ago", "1") == [["work/assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
+    assert table(capsys, "month") == [["work", "0:00"], ["total", "0:00"]]
+
+
+def test_ago_one_selects_the_previous_month_for_the_invoice(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    last = datetime.now(UTC).astimezone().date().replace(day=1) - timedelta(days=1)
+    run(capsys, "fix", f"{last}T09:00", f"{last}T10:30", "assets")
+    assert lines(capsys, "invoice", "--ago", "1") == [
+        "| Project | Hours |",
+        "| --- | ---: |",
+        "| assets | 1.50 |",
+        "| **Total** | **1.50** |",
+    ]
+    assert lines(capsys, "invoice")[-1] == "| **Total** | **0.00** |"
+
+
+def test_invoice_without_an_argument_uses_the_current_month(data_dir: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    assert lines(capsys, "invoice") == [
+        "| Project | Hours |",
+        "| --- | ---: |",
+        "| assets | 1.00 |",
+        "| **Total** | **1.00** |",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("command", "total", "future"),
+    [
+        ("day", "1:00", "2099-01-01"),
+        ("week", "1:00", "2099-W01"),
+        ("month", "1:00", "2099-01"),
+        ("invoice", "1.00", "2099-01"),
+    ],
+)
+def test_a_future_period_renders_an_empty_report_and_exits_zero(
+    data_dir: Path, capsys: pytest.CaptureFixture[str], command: str, total: str, future: str
+) -> None:
+    run(capsys, "fix", "09:00", "10:00", "assets")
+    assert total in "\n".join(lines(capsys, command))
+    assert total not in "\n".join(lines(capsys, command, future))
+    assert total not in "\n".join(lines(capsys, command, "--ago", "-1"))
+
+
+def test_the_retired_n_flag_is_gone(data_dir: Path) -> None:
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main(["week", "-n", "1"])
+    assert raised.value.code
 
 
 def test_present_minutes_with_no_signal_land_on_personal_other(
@@ -1192,7 +1321,7 @@ def test_pi_extension_spawns_tagwerk_by_absolute_path_on_four_events() -> None:
     assert "['beat', 'pi', '--cwd', ctx.cwd]" in text
 
 
-WEEK = weeks_back(T0.date())
+WEEK = f"{T0:%G-W%V}"
 MONDAY = T0 - 2 * timedelta(days=1)
 
 
@@ -1201,7 +1330,7 @@ def test_week_bar_fills_its_rounded_share_and_marks_the_cap(
 ) -> None:
     monkeypatch.setenv("NO_COLOR", "1")
     seed(ledger, hours(T0, 10))
-    out = lines(capsys, "week", "-n", WEEK)
+    out = lines(capsys, "week", WEEK)
     assert "\033" not in "\n".join(out)
     assert [line.split()[:2] for line in out[:7]] == [
         ["Mon", "03"],
@@ -1231,7 +1360,7 @@ def test_week_paints_labels_red_over_the_day_cap_or_on_a_busy_weekend(
         hours(wednesday, 7),
         hours(saturday, 1),
     )
-    out = lines(capsys, "week", "-n", WEEK)
+    out = lines(capsys, "week", WEEK)
     red = f"{tagwerk.RED}{{}}{tagwerk.RESET}"
     assert out[1].startswith(red.format("Tue 04"))
     assert out[2].startswith("Wed 05  ")
@@ -1252,7 +1381,7 @@ def test_week_footer_shows_work_against_the_cap_and_turns_red_above_it(
     seed(ledger, *(hours(MONDAY + timedelta(days=offset), 8) for offset in range(5)))
     seed(ledger, span(T0 + 9 * timedelta(hours=1), T0 + 9 * timedelta(hours=1) + extra_minutes * MINUTE, "assets"))
     seed(ledger, hours(T0 + 11 * timedelta(hours=1), 1, "auberge", "personal"))
-    out = lines(capsys, "week", "-n", WEEK)
+    out = lines(capsys, "week", WEEK)
     assert out[7] == (f"{tagwerk.RED}{footer}{tagwerk.RESET}" if extra_minutes else footer)
 
 
@@ -1260,7 +1389,7 @@ def test_the_week_bar_and_footer_count_fixed_minutes_as_paid(
     ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(ledger, hours(T0, 2), hours(T0 + 2 * timedelta(hours=1), 1, "auberge", "fixed"))
-    out = lines(capsys, "week", "-n", WEEK)
+    out = lines(capsys, "week", WEEK)
     assert out[2].endswith("3:00")
     assert out[7] == "work 3:00 / 40:00"
 
@@ -1270,7 +1399,7 @@ def test_week_lands_a_span_over_utc_midnight_on_one_local_date(
 ) -> None:
     late = datetime(2026, 8, 5, 23, 30, tzinfo=UTC)
     seed(ledger, span(late, late + 60 * MINUTE, "assets"))
-    out = run(capsys, "week", "-n", WEEK)
+    out = run(capsys, "week", WEEK)
     assert out[2][-1] == "0:00"
     assert out[3][-1] == "1:00"
 
@@ -1297,7 +1426,7 @@ def test_piped_output_carries_escapes_only_under_force_color(
     for name, value in env.items():
         monkeypatch.setenv(name, value)
     seed(ledger, hours(T0, 2))
-    assert ("\033[" in "\n".join(lines(capsys, "week", "-n", WEEK))) is escaped
+    assert ("\033[" in "\n".join(lines(capsys, "week", WEEK))) is escaped
 
 
 def terminal(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1361,14 +1490,14 @@ def test_bar_colours_are_stable_per_work_project_blue_for_general_and_grey_for_p
         hours(T0 + 2 * timedelta(hours=1), 2, "general"),
         hours(T0 + 4 * timedelta(hours=1), 2, "auberge", "personal"),
     )
-    wednesday = lines(capsys, "week", "-n", WEEK)[2]
+    wednesday = lines(capsys, "week", WEEK)[2]
     segments = re.findall(r"\033\[38;5;(\d+)m(█+)", wednesday)
     assert [len(cells) for _, cells in segments] == [4, 4, 4]
     assets, general, auberge = (int(index) for index, _ in segments)
     assert assets in tagwerk.PALETTE
     assert general == tagwerk.BLUE
     assert auberge in tagwerk.GREYS
-    assert lines(capsys, "week", "-n", WEEK)[2] == wednesday
+    assert lines(capsys, "week", WEEK)[2] == wednesday
 
 
 def test_repos_sharing_a_hue_alternate_full_and_shade_cells_so_their_segments_stay_apart(
@@ -1382,13 +1511,13 @@ def test_repos_sharing_a_hue_alternate_full_and_shade_cells_so_their_segments_st
         hours(T0 + 6 * timedelta(hours=1), 1, "auberge", "personal"),
     )
     monkeypatch.setenv("FORCE_COLOR", "1")
-    segments = re.findall(r"\033\[38;5;(\d+)m([█▓]+)", lines(capsys, "week", "-n", WEEK)[2])
+    segments = re.findall(r"\033\[38;5;(\d+)m([█▓]+)", lines(capsys, "week", WEEK)[2])
     assert [cells for _, cells in segments] == ["█" * 6, "▓" * 4, "█" * 2, "█" * 2]
     (orchid,) = {int(index) for index, _ in segments[:3]}
     assert orchid in tagwerk.PALETTE
     monkeypatch.setenv("NO_COLOR", "1")
     monkeypatch.delenv("FORCE_COLOR")
-    assert lines(capsys, "week", "-n", WEEK)[2].split()[2] == "██████▓▓▓▓████··│········"
+    assert lines(capsys, "week", WEEK)[2].split()[2] == "██████▓▓▓▓████··│········"
 
 
 def test_caps_come_from_the_config_and_change_colours_but_never_numbers(
@@ -1398,7 +1527,7 @@ def test_caps_come_from_the_config_and_change_colours_but_never_numbers(
     (home / "config.toml").write_text(f'data_dir = "{home}/data"\nday_cap_h = 4\nweek_cap_h = 4\n')
     monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
     seed(home / "data", hours(T0, 3), hours(T0 + 3 * timedelta(hours=1), 2, "auberge", "personal"))
-    out = lines(capsys, "week", "-n", WEEK)
+    out = lines(capsys, "week", WEEK)
     assert out[2].startswith(f"{tagwerk.RED}Wed 05{tagwerk.RESET}")
     assert out[2].endswith("5:00")
     assert out[7] == "work 3:00 / 4:00"

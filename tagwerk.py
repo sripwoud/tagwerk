@@ -268,6 +268,17 @@ def local_today() -> date:
     return datetime.now(UTC).astimezone().date()
 
 
+def local_monday(weeks_back: int) -> date:
+    today = local_today()
+    return today - timedelta(days=today.weekday(), weeks=weeks_back)
+
+
+def local_first(months_back: int) -> date:
+    today = local_today()
+    total = today.year * 12 + today.month - 1 - months_back
+    return date(total // 12, total % 12 + 1, 1)
+
+
 def local_range(start: date, stop: date) -> tuple[datetime, datetime]:
     return datetime.combine(start, time.min).astimezone(UTC), datetime.combine(stop, time.min).astimezone(UTC)
 
@@ -282,6 +293,16 @@ def local_month(first: date) -> tuple[datetime, datetime]:
 
 def days_between(start: date, stop: date) -> Iterator[date]:
     return (start + timedelta(days=offset) for offset in range((stop - start).days))
+
+
+def parse_day(text: str) -> date:
+    if "W" in text:
+        raise argparse.ArgumentTypeError(f"{text!r} is a week, not a day")
+    return date.fromisoformat(text)
+
+
+def parse_week(text: str) -> date:
+    return date.fromisoformat(f"{text}-1")
 
 
 def parse_month(text: str) -> date:
@@ -495,9 +516,7 @@ def report(config: Config, start: datetime, end: datetime, render: Callable[[dic
     print(render(merge(credited_days(config, start, end).values())))
 
 
-def cmd_week(config: Config, weeks_back: int) -> None:
-    today = local_today()
-    monday = today - timedelta(days=today.weekday(), weeks=weeks_back)
+def cmd_week(config: Config, monday: date) -> None:
     days = credited_days(config, *local_range(monday, monday + timedelta(days=7)))
     out = [
         bar_line(f"{day:%a %d}", days.get(day, {}), DAY_SCALE_H, config.day_cap_h, weekend=day.weekday() >= 5)
@@ -528,6 +547,12 @@ def main(argv: list[str]) -> int:
     parser.set_defaults(no_color=False)
     plain = argparse.ArgumentParser(add_help=False)
     plain.add_argument("--no-color", action="store_true", help="disable colour even on a terminal")
+
+    def add_period(cmd: argparse.ArgumentParser, unit: str, parse: Callable[[str], date], metavar: str) -> None:
+        choice = cmd.add_mutually_exclusive_group()
+        choice.add_argument("period", nargs="?", type=parse, metavar=metavar, help=f"default the current {unit}")
+        choice.add_argument("--ago", type=int, default=0, metavar="N", help=f"{unit}s back, default 0")
+
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="write the commented config template; refuses to overwrite an existing one")
     fix = commands.add_parser("fix", help="book a span by hand; it overrides the sensors for its range")
@@ -541,21 +566,22 @@ def main(argv: list[str]) -> int:
         help="work is paid and invoiced, fixed is paid and charted only, personal is charted only, "
         "off removes the range from every report",
     )
-    commands.add_parser("day", parents=[plain], help="hours per kind/project for the local day")
+    day = commands.add_parser("day", parents=[plain], help="hours per kind/project for the local day")
+    add_period(day, "day", parse_day, "YYYY-MM-DD")
     week = commands.add_parser(
         "week", parents=[plain], help="one bar per day, Monday to Sunday, with the day and week caps"
     )
-    week.add_argument("-n", type=int, default=0, metavar="N", help="weeks back, default 0")
+    add_period(week, "week", parse_week, "YYYY-Www")
     month = commands.add_parser(
         "month",
         parents=[plain],
         help="one bar per ISO week, counting only its days inside the month, then hours per kind/project",
     )
-    month.add_argument("month", nargs="?", type=parse_month, default=None, help="YYYY-MM, default the current month")
+    add_period(month, "month", parse_month, "YYYY-MM")
     invoice = commands.add_parser(
         "invoice", parents=[plain], help="markdown table of work hours per project in quarter hours"
     )
-    invoice.add_argument("month", type=parse_month, help="YYYY-MM")
+    add_period(invoice, "month", parse_month, "YYYY-MM")
     focus = commands.add_parser("focus", help="poll the focused window and kitty cwd into the ledger")
     focus.add_argument("--once", action="store_true", help="one poll, then exit")
     import_timew = commands.add_parser("import-timew", help="one-shot import of the timewarrior export as spans")
@@ -585,17 +611,17 @@ def main(argv: list[str]) -> int:
     elif args.command in ("idle", "active"):
         append_event(config, {"ev": args.command})
     elif args.command == "week":
-        cmd_week(config, args.n)
+        cmd_week(config, args.period or local_monday(args.ago))
     elif args.command == "month":
-        cmd_month(config, args.month or local_today().replace(day=1))
+        cmd_month(config, args.period or local_first(args.ago))
     elif args.command == "invoice":
-        report(config, *local_month(args.month), render_invoice)
+        report(config, *local_month(args.period or local_first(args.ago)), render_invoice)
     elif args.command == "focus":
         cmd_focus(config, args.once)
     elif args.command == "import-timew":
         cmd_import_timew(config, args.work_tag, args.file)
-    else:
-        report(config, *local_day(local_today()), render_table)
+    elif args.command == "day":
+        report(config, *local_day(args.period or local_today() - timedelta(days=args.ago)), render_table)
     return 0
 
 
