@@ -296,7 +296,7 @@ def work_minutes(minutes: dict[Bucket, float]) -> float:
 
 
 def render_table(minutes: dict[Bucket, float]) -> str:
-    cells = [(bucket.project, format_hours(credited)) for bucket, credited in ranked(minutes)]
+    cells = [(f"{bucket.kind}/{bucket.project}", format_hours(credited)) for bucket, credited in ranked(minutes)]
     cells.append(("work", format_hours(work_minutes(minutes))))
     cells.append(("total", format_hours(sum(minutes.values()))))
     name_width = max(len(name) for name, _ in cells)
