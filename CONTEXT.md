@@ -86,6 +86,10 @@ _Avoid_: context, fallback bucket
 
 ### Reports
 
+**Period**:
+The stretch of days one report covers, named in that report's own unit: a day, an ISO week or a calendar month.
+_Avoid_: range, window, timeframe, span
+
 **Cap**:
 A daily or weekly threshold on paid hours above which reports highlight the period. Caps change colours, never numbers.
 _Avoid_: limit, quota, budget
