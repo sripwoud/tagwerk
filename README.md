@@ -27,7 +27,16 @@ systemctl --user enable --now tagwerk-idle.service tagwerk-focus.service
 
 Any AUR helper works: `yay -S tagwerk-git`. Without one, `git clone https://aur.archlinux.org/tagwerk-git.git && cd tagwerk-git && makepkg -si` builds the package and installs it through pacman.
 
-In the config, point `[roots]` at your work org's clone directory as `work` and at your personal code directory as `personal`. Make the `[[title]]` patterns match your org's GitHub titles and chat apps. The longest root wins. The project is the first directory below the root, cut at its first dot, so `assets.8467` and `assets` are one project. Every other key ships with its default; the comments in the file `tagwerk init` writes explain each one.
+In the config, point `[roots]` at your work org's clone directory as `work` and at your personal code directory as `personal`. A fixed-price customer's directory is `fixed`: paid, so it counts toward the caps, but never on the hourly customer's invoice. Make the `[[title]]` patterns match your org's GitHub titles and chat apps. The longest root wins. The project is the first directory below the root, cut at its first dot, so `assets.8467` and `assets` are one project. Every other key ships with its default; the comments in the file `tagwerk init` writes explain each one.
+
+| kind       | counts toward the caps | on the invoice |
+| ---------- | :--------------------: | :------------: |
+| `work`     |          yes           |      yes       |
+| `fixed`    |          yes           |       no       |
+| `personal` |           no           |       no       |
+| `off`      |           no           |       no       |
+
+A kind never names the payer. `off` belongs to a span, not to a root or a title rule: the config rejects it there, and `tagwerk fix --kind off` books it.
 
 Omarchy's shell already runs the screensaver at 150 s and the lock at 300 s, so `tagwerk-idle.service` runs hypridle on the packaged `/usr/share/tagwerk/hypridle.conf`, which only feeds the ledger. Its listener fires at the same 150 s without input and no minutes fall between screensaver and lock. If you already run `hypridle.service` with your own config, add its `tagwerk idle` and `tagwerk active` lines there and skip `tagwerk-idle.service`.
 
@@ -87,24 +96,25 @@ The sleep hook belongs to no package and runs `timew stop` on every suspend. Tim
 
 Times are local; `HH:MM` means today.
 
-| Command                                             | Does                                                                                                                         |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `tagwerk init`                                      | write the commented config template to `~/.config/tagwerk/config.toml`; refuses to overwrite                                 |
-| `tagwerk today`                                     | hours per project for the local day, work subtotal, total                                                                    |
-| `tagwerk week [-n N]`                               | one bar per day, Monday to Sunday, N weeks back; cap marker, red over the day cap or on a weekend with minutes               |
-| `tagwerk month [YYYY-MM]`                           | one bar per ISO week, then hours per project; default the current month                                                      |
-| `tagwerk invoice YYYY-MM`                           | markdown table of work hours per project in quarter hours; rows sum to the rounded total                                     |
-| `tagwerk fix START END PROJECT [--personal\|--off]` | book a span that overrides the sensors for its range; `--personal` charts without invoicing, `--off` removes it              |
-| `tagwerk import-timew --work-tag TAG [FILE]`        | one-shot import of the timewarrior export as spans; runs `timew export` when `FILE` is omitted                               |
-| `tagwerk focus [--once]`                            | the poller; `--once` writes one poll and exits                                                                               |
-| `tagwerk beat SRC [--cwd PATH]`                     | an agent signal from `SRC` (`claude` or `pi`); cwd from `--cwd`, else the `cwd` field of JSON on stdin, else the process cwd |
-| `tagwerk idle`, `tagwerk active`                    | idle marks, written by hypridle                                                                                              |
-| `tagwerk --version`                                 | the git revision the package was built from, or `master` from a checkout (ADR-0007)                                          |
+| Command                                       | Does                                                                                                                         |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `tagwerk init`                                | write the commented config template to `~/.config/tagwerk/config.toml`; refuses to overwrite                                 |
+| `tagwerk today`                               | hours per `kind/project` for the local day, the paid `work` subtotal, total                                                  |
+| `tagwerk week [-n N]`                         | one bar per day, Monday to Sunday, N weeks back; cap marker, red over the day cap or on a weekend with minutes               |
+| `tagwerk month [YYYY-MM]`                     | one bar per ISO week, then hours per `kind/project`; default the current month                                               |
+| `tagwerk invoice YYYY-MM`                     | markdown table of `work` hours per project in quarter hours; rows sum to the rounded total; `fixed` never appears            |
+| `tagwerk fix START END PROJECT [--kind KIND]` | book a span that overrides the sensors for its range; `KIND` is `work` (default), `fixed`, `personal` or `off`               |
+| `tagwerk import-timew --work-tag TAG [FILE]`  | one-shot import of the timewarrior export as spans; runs `timew export` when `FILE` is omitted                               |
+| `tagwerk focus [--once]`                      | the poller; `--once` writes one poll and exits                                                                               |
+| `tagwerk beat SRC [--cwd PATH]`               | an agent signal from `SRC` (`claude` or `pi`); cwd from `--cwd`, else the `cwd` field of JSON on stdin, else the process cwd |
+| `tagwerk idle`, `tagwerk active`              | idle marks, written by hypridle                                                                                              |
+| `tagwerk --version`                           | the git revision the package was built from, or `master` from a checkout (ADR-0007)                                          |
 
 ```sh
 tagwerk fix 14:00 15:00 assets
-tagwerk fix 2026-09-08T09:00 2026-09-08T10:00 blog --personal
-tagwerk fix 12:00 13:00 lunch --off
+tagwerk fix 09:00 12:00 auberge --kind fixed
+tagwerk fix 2026-09-08T09:00 2026-09-08T10:00 blog --kind personal
+tagwerk fix 12:00 13:00 lunch --kind off
 tagwerk week -n 1
 tagwerk invoice 2026-08
 ```
@@ -118,6 +128,7 @@ tagwerk invoice 2026-08
 - Beats while idle book nothing. An unattended overnight agent adds no hours; credit resumes on the still-valid lease when you return.
 - With no lease the focused window decides. A kitty shell sitting at a root books that kind's `general`; a work-pattern title (Slack, Zoom, Meet, your org) books `work/general`; anything else books `personal/other`.
 - Idle inhibitors are honoured, so a video call with your hands off the keyboard stays present. In exchange an abandoned video also stays present and books `personal/other`; that inflates the chart, never the invoice. If the chart looks inflated, copy `/usr/share/tagwerk/hypridle.conf`, set `ignore_dbus_inhibit = true` in the copy, and point `--config` at it with `systemctl --user edit tagwerk-idle.service`.
+- `work` and `fixed` are both paid: both drive the day and week caps and both land in the `work` subtotal. Only `work` reaches `tagwerk invoice`, so fixed-price hours show up in the burnout check and never on an hourly customer's bill (ADR-0006).
 - A span overrides the sensors for its whole range, no partial merge, and the latest appended span wins on overlap. Nothing in the ledger is ever edited (ADR-0002).
 
 ## Known ceilings

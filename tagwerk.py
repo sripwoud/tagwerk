@@ -43,6 +43,9 @@ class Bucket(NamedTuple):
 
 
 OTHER = Bucket("personal", "other")
+PAID = ("work", "fixed")
+RULE_KINDS = (*PAID, "personal")
+KINDS = (*RULE_KINDS, "off")
 TitleRule = tuple[re.Pattern[str], str, str | None]
 
 
@@ -82,6 +85,7 @@ week_cap_h = 40 # the week footer and month week bars turn red above this
 [roots] # longest match wins; the project is the first directory below the root, cut at its first dot
 "~/code/work-org" = "work"
 "~/memories/work" = "work"
+# "~/code/fixed-price-client" = "fixed" # paid, so it counts toward the caps, but never invoiced
 "~/code" = "personal"
 
 [[title]] # first match wins; consulted only when the cwd resolves to nothing
@@ -107,6 +111,13 @@ def load_config(path: Path) -> Config:
     if not path.is_file():
         raise SystemExit(f"config file not found: {path}; run tagwerk init")
     raw = tomllib.loads(path.read_text())
+    rules = [*raw.get("roots", {}).items(), *((rule["pattern"], rule["kind"]) for rule in raw.get("title", []))]
+    for rule, kind in rules:
+        if kind not in RULE_KINDS:
+            raise SystemExit(
+                f"{path}: {rule}: kind must be one of {', '.join(RULE_KINDS)}; "
+                "book off time with tagwerk fix --kind off"
+            )
     data_dir = Path(os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir") or default_data_dir()).expanduser()
     roots = [(Path(root).expanduser(), kind) for root, kind in raw.get("roots", {}).items()]
     roots.sort(key=lambda root: len(root[0].parts), reverse=True)
@@ -288,16 +299,18 @@ def format_hours(minutes: float) -> str:
 
 
 def ranked(minutes: dict[Bucket, float]) -> list[tuple[Bucket, float]]:
-    return sorted(minutes.items(), key=lambda row: (row[0].kind != "work", -row[1], row[0].project))
+    return sorted(
+        minutes.items(), key=lambda row: (row[0].kind not in PAID, row[0].kind != "work", -row[1], row[0].project)
+    )
 
 
-def work_minutes(minutes: dict[Bucket, float]) -> float:
-    return sum(credited for bucket, credited in minutes.items() if bucket.kind == "work")
+def paid_minutes(minutes: dict[Bucket, float]) -> float:
+    return sum(credited for bucket, credited in minutes.items() if bucket.kind in PAID)
 
 
 def render_table(minutes: dict[Bucket, float]) -> str:
-    cells = [(bucket.project, format_hours(credited)) for bucket, credited in ranked(minutes)]
-    cells.append(("work", format_hours(work_minutes(minutes))))
+    cells = [(f"{bucket.kind}/{bucket.project}", format_hours(credited)) for bucket, credited in ranked(minutes)]
+    cells.append(("work", format_hours(paid_minutes(minutes))))
     cells.append(("total", format_hours(sum(minutes.values()))))
     name_width = max(len(name) for name, _ in cells)
     hours_width = max(len(hours) for _, hours in cells)
@@ -488,9 +501,9 @@ def cmd_week(config: Config, weeks_back: int) -> None:
         bar_line(f"{day:%a %d}", days.get(day, {}), DAY_SCALE_H, config.day_cap_h, weekend=day.weekday() >= 5)
         for day in days_between(monday, monday + timedelta(days=7))
     ]
-    work = work_minutes(merge(days.values()))
-    footer = f"work {format_hours(work)} / {format_hours(config.week_cap_h * 60)}"
-    out.append(paint(footer, RED) if work > config.week_cap_h * 60 else footer)
+    paid = paid_minutes(merge(days.values()))
+    footer = f"work {format_hours(paid)} / {format_hours(config.week_cap_h * 60)}"
+    out.append(paint(footer, RED) if paid > config.week_cap_h * 60 else footer)
     print("\n".join(out))
 
 
@@ -514,19 +527,18 @@ def main(argv: list[str]) -> int:
     fix.add_argument("start", type=parse_local, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
     fix.add_argument("end", type=parse_local, help="HH:MM today or YYYY-MM-DDTHH:MM, local time")
     fix.add_argument("project")
-    kind = fix.add_mutually_exclusive_group()
-    kind.add_argument(
-        "--personal", dest="kind", action="store_const", const="personal", help="chart only, never invoiced"
+    fix.add_argument(
+        "--kind",
+        choices=KINDS,
+        default="work",
+        help="work is paid and invoiced, fixed is paid and charted only, personal is charted only, "
+        "off removes the range from every report",
     )
-    kind.add_argument(
-        "--off", dest="kind", action="store_const", const="off", help="remove the range from every report"
-    )
-    fix.set_defaults(kind="work")
-    commands.add_parser("today", help="hours per project for the local day")
+    commands.add_parser("today", help="hours per kind/project for the local day")
     week = commands.add_parser("week", help="one bar per day, Monday to Sunday, with the day and week caps")
     week.add_argument("-n", type=int, default=0, metavar="N", help="weeks back, default 0")
     month = commands.add_parser(
-        "month", help="one bar per ISO week, counting only its days inside the month, then hours per project"
+        "month", help="one bar per ISO week, counting only its days inside the month, then hours per kind/project"
     )
     month.add_argument("month", nargs="?", type=parse_month, default=None, help="YYYY-MM, default the current month")
     invoice = commands.add_parser("invoice", help="markdown table of work hours per project in quarter hours")

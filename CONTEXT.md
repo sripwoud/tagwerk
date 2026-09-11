@@ -41,7 +41,7 @@ One of `work`, `fixed`, `personal`, `off`. Work is paid and invoiced, fixed is p
 _Avoid_: category, type, tag, customer, payer
 
 **Paid**:
-A minute of kind `work` or `fixed`. Paid minutes drive the caps; only `work` reaches the invoice.
+A minute of kind `work` or `fixed`. Paid minutes drive the caps; only `work` reaches the invoice. The `today` and `month` tables and the `week` footer label this subtotal `work`, the older of the two paid kinds.
 _Avoid_: billable, chargeable
 
 **Project**:
@@ -73,7 +73,7 @@ A minute in which the user is at the machine: neither idle nor absent.
 _Avoid_: active, online, worked
 
 **Credited**:
-A minute booked to a bucket: every present minute, plus every minute covered by a span of kind work or personal. Off spans and non-present minutes are never credited.
+A minute booked to a bucket: every present minute, plus every minute covered by a span of any kind but off. Off spans and non-present minutes are never credited.
 _Avoid_: worked, logged, tracked
 
 **Lease**:
