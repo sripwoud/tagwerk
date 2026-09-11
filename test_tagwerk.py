@@ -673,6 +673,31 @@ def test_an_off_span_removes_present_minutes(home: Path, ledger: Path, capsys: p
     assert table(capsys, "month", "2026-08") == [["work/assets", "0:05"], ["work", "0:05"], ["total", "0:05"]]
 
 
+@pytest.mark.parametrize(
+    ("rule", "offender"),
+    [('[roots]\n"{home}/Games" = "off"\n', "Games"), ('[[title]]\npattern = "Steam"\nkind = "off"\n', "Steam")],
+)
+def test_a_root_or_title_rule_of_kind_off_is_rejected_at_load(
+    home: Path, monkeypatch: pytest.MonkeyPatch, rule: str, offender: str
+) -> None:
+    (home / "config.toml").write_text(f'data_dir = "{home}/data"\n' + rule.format(home=home))
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main(["today"])
+    assert raised.value.code
+    assert offender in str(raised.value)
+    assert "fix --kind off" in str(raised.value)
+
+
+def test_a_root_of_kind_fixed_books_its_minutes_as_paid(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (home / "config.toml").write_text(f'data_dir = "{home}/data"\n[roots]\n"{home}/code/auberge" = "fixed"\n')
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "config.toml"))
+    seed(home / "data", *present(T0, 5), beat(T0, f"{home}/code/auberge/site"))
+    assert table(capsys, "month", "2026-08") == [["fixed/site", "0:05"], ["work", "0:05"], ["total", "0:05"]]
+
+
 def test_lease_and_staleness_keys_are_read_from_the_config(
     home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

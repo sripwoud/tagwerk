@@ -112,6 +112,15 @@ def load_config(path: Path) -> Config:
     data_dir = Path(os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir") or default_data_dir()).expanduser()
     roots = [(Path(root).expanduser(), kind) for root, kind in raw.get("roots", {}).items()]
     roots.sort(key=lambda root: len(root[0].parts), reverse=True)
+    titles = [(re.compile(rule["pattern"]), rule["kind"], rule.get("project")) for rule in raw.get("title", [])]
+    off = [str(root) for root, kind in roots if kind == "off"] + [
+        pattern.pattern for pattern, kind, _ in titles if kind == "off"
+    ]
+    if off:
+        raise SystemExit(
+            f"{path}: off is a span kind, not a root or title kind: {', '.join(off)}; "
+            "remove the rule and book the time with tagwerk fix --kind off"
+        )
     return Config(
         data_dir=data_dir,
         poll_sec=raw.get("poll_sec", 15),
@@ -120,7 +129,7 @@ def load_config(path: Path) -> Config:
         beat_throttle=timedelta(seconds=raw.get("beat_throttle_sec", 60)),
         focus_lease=timedelta(minutes=raw.get("focus_lease_min", 1)),
         roots=roots,
-        titles=[(re.compile(rule["pattern"]), rule["kind"], rule.get("project")) for rule in raw.get("title", [])],
+        titles=titles,
         kitty_socket=raw.get("kitty_socket", "unix:${XDG_RUNTIME_DIR}/omarchy-kitty-{pid}"),
         day_cap_h=raw.get("day_cap_h", 8),
         week_cap_h=raw.get("week_cap_h", 40),
