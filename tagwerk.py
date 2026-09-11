@@ -164,12 +164,12 @@ def resolve_title(config: Config, title: str | None) -> Bucket | None:
     return None
 
 
-def format_utc(moment: datetime) -> str:
-    return moment.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+def format_utc(moment: datetime, timespec: str = "seconds") -> str:
+    return moment.astimezone(UTC).isoformat(timespec=timespec).replace("+00:00", "Z")
 
 
 def stamped(event: Event) -> Event:
-    return {"ts": format_utc(datetime.now(UTC)), **event}
+    return {"ts": format_utc(datetime.now(UTC), "microseconds"), **event}
 
 
 def month_file(data_dir: Path, day: date) -> Path:

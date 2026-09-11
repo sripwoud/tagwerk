@@ -251,6 +251,20 @@ def test_latest_appended_span_wins_on_overlap(data_dir: Path, capsys: pytest.Cap
     ]
 
 
+def test_a_late_correction_crossing_a_month_wins_over_a_span_appended_earlier(
+    data_dir: Path, berlin: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run(capsys, "fix", "2026-09-01T02:00", "2026-09-01T05:00", "auberge")
+    run(capsys, "fix", "2026-08-31T23:00", "2026-09-01T04:00", "assets")
+    assert sorted(path.name for path in data_dir.glob("*.jsonl")) == ["2026-08.jsonl", "2026-09.jsonl"]
+    assert run(capsys, "day", "2026-09-01") == [
+        ["work/assets", "4:00"],
+        ["work/auberge", "1:00"],
+        ["work", "5:00"],
+        ["total", "5:00"],
+    ]
+
+
 def test_personal_rows_follow_work_rows_regardless_of_minutes(
     data_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
