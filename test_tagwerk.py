@@ -288,9 +288,10 @@ def test_fix_books_the_named_kind_and_defaults_to_work(data_dir: Path, capsys: p
     ]
 
 
-def test_fix_rejects_a_kind_outside_the_four_and_appends_nothing(data_dir: Path) -> None:
+@pytest.mark.parametrize("flag", [["--kind", "bogus"], ["--personal"], ["--off"]])
+def test_fix_rejects_an_unknown_kind_or_a_retired_flag_and_appends_nothing(data_dir: Path, flag: list[str]) -> None:
     with pytest.raises(SystemExit) as raised:
-        tagwerk.main(["fix", "09:00", "10:00", "x", "--kind", "bogus"])
+        tagwerk.main(["fix", "09:00", "10:00", "x", *flag])
     assert raised.value.code
     assert not data_dir.exists()
 
@@ -1202,11 +1203,13 @@ def test_week_footer_shows_work_against_the_cap_and_turns_red_above_it(
     assert out[7] == (f"{tagwerk.RED}{footer}{tagwerk.RESET}" if extra_minutes else footer)
 
 
-def test_the_week_footer_counts_fixed_minutes_as_paid(
+def test_the_week_bar_and_footer_count_fixed_minutes_as_paid(
     ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seed(ledger, hours(T0, 2), hours(T0 + 2 * timedelta(hours=1), 1, "auberge", "fixed"))
-    assert lines(capsys, "week", "-n", WEEK)[7] == "work 3:00 / 40:00"
+    out = lines(capsys, "week", "-n", WEEK)
+    assert out[2].endswith("3:00")
+    assert out[7] == "work 3:00 / 40:00"
 
 
 def test_week_lands_a_span_over_utc_midnight_on_one_local_date(
