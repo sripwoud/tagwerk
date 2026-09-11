@@ -52,6 +52,10 @@ _Avoid_: client, task, tag
 A project named after a repository, derived from a cwd under a root with any worktree suffix stripped, or from a GitHub title. Only repos take leases.
 _Avoid_: repository, named project
 
+**Rename**:
+A retired project name that folds into its current one at resolution, for all time. A rename never changes a kind.
+_Avoid_: alias, mapping, migration
+
 **Catch-all**:
 The two projects that are not repos: `general` (inside a kind's territory with no repo, such as a shell sitting at a root or a work-pattern window title) and `other` (no recognisable signal at all).
 _Avoid_: fallback, misc, unknown
