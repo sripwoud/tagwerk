@@ -391,7 +391,10 @@ def test_config_flag_overrides_the_env(
 
 def test_config_flag_directs_init(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
     config = home / "elsewhere/config.toml"
-    assert lines(capsys, "--config", str(config), "init") == [f"wrote {config}"]
+    assert tagwerk.main(["--config", str(config), "init"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.splitlines() == [f"wrote {config}"]
     assert config.read_text() == tagwerk.CONFIG_TEMPLATE
 
 
