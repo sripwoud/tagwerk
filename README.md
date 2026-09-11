@@ -98,6 +98,7 @@ Times are local; `HH:MM` means today. Every report takes an optional period in i
 
 | Command                                       | Does                                                                                                                         |
 | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `tagwerk`                                     | the description, two examples and where to go next; no command is not an error                                               |
 | `tagwerk init`                                | write the commented config template to `~/.config/tagwerk/config.toml`; refuses to overwrite                                 |
 | `tagwerk day [YYYY-MM-DD]`                    | hours per `kind/project` for the local day, the paid `work` subtotal, total                                                  |
 | `tagwerk week [YYYY-Www]`                     | one bar per day, Monday to Sunday; cap marker, red over the day cap or on a weekend with minutes                             |

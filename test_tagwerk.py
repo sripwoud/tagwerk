@@ -144,6 +144,33 @@ def test_help_exits_zero_and_prints_usage(capsys: pytest.CaptureFixture[str], co
     assert capsys.readouterr().out.startswith(f"usage: tagwerk {' '.join(command)}".rstrip())
 
 
+def test_bare_invocation_prints_the_description_two_examples_and_the_help_pointer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("TAGWERK_CONFIG", str(tmp_path / "nope.toml"))
+    assert tagwerk.main([]) == 0
+    assert capsys.readouterr().out == (
+        "Passive work-hours ledger for one Linux desktop.\n"
+        "\n"
+        "examples:\n"
+        "  tagwerk day                 hours per kind/project for the local day\n"
+        "  tagwerk invoice --ago 1     last month's invoice table\n"
+        "\n"
+        "tagwerk --help lists every command; docs at https://github.com/sripwoud/tagwerk\n"
+    )
+
+
+def test_help_leads_with_the_examples_and_ends_with_the_issues_url(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main(["--help"])
+    assert raised.value.code == 0
+    out = capsys.readouterr().out
+    assert "  tagwerk day                 hours per kind/project for the local day\n" in out
+    assert "  tagwerk invoice --ago 1     last month's invoice table\n" in out
+    assert out.index("examples:") < out.index("positional arguments:")
+    assert out.rstrip().endswith("issues: https://github.com/sripwoud/tagwerk/issues")
+
+
 def test_script_runs_through_shebang() -> None:
     result = subprocess.run([str(SCRIPT), "--help"], capture_output=True, text=True, check=False)
     assert result.returncode == 0
