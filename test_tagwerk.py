@@ -110,15 +110,12 @@ def present(start: datetime, count: int, **window: Any) -> list[Event]:
 
 
 def span(start: datetime, end: datetime, project: str, kind: str = "work") -> Event:
-    return {"ts": stamp(end), "ev": "span", "start": stamp(start), "end": stamp(end), "kind": kind, "project": project}
+    return tagwerk.stamped({"ev": "span", "start": stamp(start), "end": stamp(end), "kind": kind, "project": project})
 
 
 def seed(ledger: Path, *events: Event) -> None:
-    ledger.mkdir(parents=True, exist_ok=True)
     for event in events:
-        filed = event["start"] if event["ev"] == "span" else event["ts"]
-        with (ledger / f"{filed[:7]}.jsonl").open("a") as month:
-            month.write(json.dumps(event) + "\n")
+        tagwerk.append_event(ledger, event)
 
 
 @pytest.mark.parametrize(
@@ -252,6 +249,27 @@ def test_latest_appended_span_wins_on_overlap(data_dir: Path, capsys: pytest.Cap
         ["work", "0:30"],
         ["total", "1:00"],
     ]
+
+
+def test_a_late_span_crossing_a_month_wins_over_one_appended_earlier(
+    data_dir: Path, berlin: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run(capsys, "fix", "2026-09-01T02:00", "2026-09-01T05:00", "auberge")
+    run(capsys, "fix", "2026-08-31T23:00", "2026-09-01T04:00", "assets")
+    assert sorted(path.name for path in data_dir.glob("*.jsonl")) == ["2026-08.jsonl", "2026-09.jsonl"]
+    assert run(capsys, "day", "2026-09-01") == [
+        ["work/assets", "4:00"],
+        ["work/auberge", "1:00"],
+        ["work", "5:00"],
+        ["total", "5:00"],
+    ]
+
+
+def test_append_refuses_a_span_carrying_no_append_time(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    with pytest.raises(KeyError):
+        tagwerk.append_event(data_dir, {"ev": "span", "start": stamp(T0), "end": stamp(T0 + MINUTE)})
+    assert not data_dir.exists()
 
 
 def test_personal_rows_follow_work_rows_regardless_of_minutes(
