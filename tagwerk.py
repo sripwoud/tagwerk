@@ -72,7 +72,7 @@ def default_data_dir() -> Path:
     return Path(os.environ.get("XDG_DATA_HOME", "~/.local/share")).expanduser() / "tagwerk"
 
 
-CONFIG_TEMPLATE = r"""data_dir = "~/.local/share/tagwerk" # TAGWERK_DATA_DIR overrides this
+CONFIG_TEMPLATE = r"""data_dir = "~/.local/share/tagwerk" # --data-dir and TAGWERK_DATA_DIR override this
 poll_sec = 15
 poll_stale_min = 2 # a poll this recent proves the machine was on
 beat_lease_min = 10 # an agent beat leases its repo this long
@@ -107,7 +107,7 @@ def cmd_init(path: Path) -> None:
     print(f"wrote {path}", file=sys.stderr)
 
 
-def load_config(path: Path) -> Config:
+def load_config(path: Path, data_dir: Path | None) -> Config:
     if not path.is_file():
         raise SystemExit(f"config file not found: {path}; run tagwerk init")
     raw = tomllib.loads(path.read_text())
@@ -118,11 +118,11 @@ def load_config(path: Path) -> Config:
                 f"{path}: {rule}: kind must be one of {', '.join(RULE_KINDS)}; "
                 "book off time with tagwerk fix --kind off"
             )
-    data_dir = Path(os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir") or default_data_dir()).expanduser()
+    chosen = data_dir or os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir") or default_data_dir()
     roots = [(Path(root).expanduser(), kind) for root, kind in raw.get("roots", {}).items()]
     roots.sort(key=lambda root: len(root[0].parts), reverse=True)
     return Config(
-        data_dir=data_dir,
+        data_dir=Path(chosen).expanduser(),
         poll_sec=raw.get("poll_sec", 15),
         poll_stale=timedelta(minutes=raw.get("poll_stale_min", 2)),
         beat_lease=timedelta(minutes=raw.get("beat_lease_min", 10)),
@@ -523,6 +523,8 @@ def cmd_month(config: Config, first: date) -> None:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="tagwerk", description="Passive work-hours ledger for one Linux desktop.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
+    parser.add_argument("--config", type=Path, metavar="PATH", help="config file; overrides TAGWERK_CONFIG")
+    parser.add_argument("--data-dir", type=Path, metavar="PATH", help="ledger directory; overrides TAGWERK_DATA_DIR")
     parser.set_defaults(no_color=False)
     plain = argparse.ArgumentParser(add_help=False)
     plain.add_argument("--no-color", action="store_true", help="disable colour even on a terminal")
@@ -569,11 +571,11 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if args.no_color:
         os.environ["NO_COLOR"] = "1"
-    config_path = Path(os.environ.get("TAGWERK_CONFIG") or default_config_path()).expanduser()
+    config_path = (args.config or Path(os.environ.get("TAGWERK_CONFIG") or default_config_path())).expanduser()
     if args.command == "init":
         cmd_init(config_path)
         return 0
-    config = load_config(config_path)
+    config = load_config(config_path, args.data_dir)
     if args.command == "fix":
         cmd_fix(config, args.start, args.end, args.project, args.kind)
     elif args.command == "beat":
