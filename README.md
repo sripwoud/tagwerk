@@ -110,7 +110,7 @@ Times are local; `HH:MM` means today.
 | `tagwerk idle`, `tagwerk active`              | idle marks, written by hypridle                                                                                              |
 | `tagwerk --version`                           | the git revision the package was built from, or `master` from a checkout (ADR-0007)                                          |
 | `tagwerk --config PATH CMD`                   | read this config; beats `TAGWERK_CONFIG`, which beats `~/.config/tagwerk/config.toml`                                        |
-| `tagwerk --data-dir PATH CMD`                 | read and write this ledger directory; beats `TAGWERK_DATA_DIR`, which beats `data_dir` in the config                         |
+| `tagwerk --data-dir PATH CMD`                 | read and write this ledger directory; beats `TAGWERK_DATA_DIR`, which beats `data_dir` in the config; `init` rejects it      |
 
 ```sh
 tagwerk fix 14:00 15:00 assets

@@ -573,6 +573,8 @@ def main(argv: list[str]) -> int:
         os.environ["NO_COLOR"] = "1"
     config_path = (args.config or Path(os.environ.get("TAGWERK_CONFIG") or default_config_path())).expanduser()
     if args.command == "init":
+        if args.data_dir:
+            parser.error("--data-dir does not apply to init; set data_dir in the config it writes")
         cmd_init(config_path)
         return 0
     config = load_config(config_path, args.data_dir)

@@ -398,6 +398,16 @@ def test_config_flag_directs_init(home: Path, capsys: pytest.CaptureFixture[str]
     assert config.read_text() == tagwerk.CONFIG_TEMPLATE
 
 
+def test_data_dir_flag_is_rejected_for_init_before_anything_is_written(
+    home: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main(["--data-dir", str(home / "led"), "init"])
+    assert raised.value.code == 2
+    assert "--data-dir does not apply to init" in capsys.readouterr().err
+    assert not (home / ".config/tagwerk/config.toml").exists()
+
+
 def test_init_writes_the_template_once_and_it_books_into_the_expanded_home(
     home: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
