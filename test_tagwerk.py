@@ -153,6 +153,33 @@ def test_script_runs_through_shebang() -> None:
     assert result.stdout.startswith("usage: tagwerk")
 
 
+def test_version_prints_the_version_and_exits_zero_without_a_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("TAGWERK_CONFIG", str(tmp_path / "nope.toml"))
+    with pytest.raises(SystemExit) as raised:
+        tagwerk.main(["--version"])
+    assert raised.value.code == 0
+    assert capsys.readouterr().out == f"tagwerk {tagwerk.VERSION}\n"
+
+
+def test_the_package_stamps_the_git_revision_over_the_master_version(tmp_path: Path) -> None:
+    installed = tmp_path / "usr/bin/tagwerk"
+    installed.parent.mkdir(parents=True)
+    installed.write_text(SCRIPT.read_text())
+    [stamp_line] = [
+        line.strip() for line in (CONTRIB / "aur/PKGBUILD").read_text().splitlines() if line.strip().startswith("sed")
+    ]
+    subprocess.run(
+        ["bash", "-c", stamp_line],
+        check=True,
+        env={**os.environ, "pkgdir": str(tmp_path), "pkgver": "r99.abc1234"},
+    )
+    installed.chmod(0o755)
+    stamped = subprocess.run([str(installed), "--version"], capture_output=True, text=True, check=False)
+    assert (stamped.returncode, stamped.stdout) == (0, "tagwerk r99.abc1234\n")
+
+
 def test_missing_config_exits_with_its_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     missing = tmp_path / "nope.toml"
     monkeypatch.setenv("TAGWERK_CONFIG", str(missing))
