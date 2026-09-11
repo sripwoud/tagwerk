@@ -84,6 +84,7 @@ week_cap_h = 40 # the week footer and month week bars turn red above this
 [roots] # longest match wins; the project is the first directory below the root, cut at its first dot
 "~/code/work-org" = "work"
 "~/memories/work" = "work"
+# "~/code/fixed-price-client" = "fixed" # paid, so it counts toward the caps, but never invoiced
 "~/code" = "personal"
 
 [[title]] # first match wins; consulted only when the cwd resolves to nothing
