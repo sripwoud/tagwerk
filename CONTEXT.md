@@ -37,8 +37,12 @@ A configured path prefix that maps everything beneath it to one kind. The longes
 _Avoid_: workspace, base dir
 
 **Kind**:
-One of `work`, `personal`, `off`. Work is invoiced, personal is charted only, off is time removed entirely.
-_Avoid_: category, type, tag
+One of `work`, `fixed`, `personal`, `off`. Work is paid and invoiced, fixed is paid and charted only, personal is charted only, off is time removed entirely. A kind never names the payer.
+_Avoid_: category, type, tag, customer, payer
+
+**Paid**:
+A minute of kind `work` or `fixed`. Paid minutes drive the caps; only `work` reaches the invoice.
+_Avoid_: billable, chargeable
 
 **Project**:
 The unit minutes are attributed to: a repo or a catch-all.
@@ -83,9 +87,9 @@ _Avoid_: context, fallback bucket
 ### Reports
 
 **Cap**:
-A daily or weekly hours threshold above which reports highlight the period. Caps change colours, never numbers.
+A daily or weekly threshold on paid hours above which reports highlight the period. Caps change colours, never numbers.
 _Avoid_: limit, quota, budget
 
 **Invoice**:
-The monthly table of work hours per project, rounded to quarter hours so the rows sum to the rounded total.
+The monthly table of `work` hours per project, rounded to quarter hours so the rows sum to the rounded total. Fixed hours never reach it.
 _Avoid_: bill, timesheet
