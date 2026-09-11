@@ -534,11 +534,11 @@ def main(argv: list[str]) -> int:
         help="work is paid and invoiced, fixed is paid and charted only, personal is charted only, "
         "off removes the range from every report",
     )
-    commands.add_parser("today", help="hours per project for the local day")
+    commands.add_parser("today", help="hours per kind/project for the local day")
     week = commands.add_parser("week", help="one bar per day, Monday to Sunday, with the day and week caps")
     week.add_argument("-n", type=int, default=0, metavar="N", help="weeks back, default 0")
     month = commands.add_parser(
-        "month", help="one bar per ISO week, counting only its days inside the month, then hours per project"
+        "month", help="one bar per ISO week, counting only its days inside the month, then hours per kind/project"
     )
     month.add_argument("month", nargs="?", type=parse_month, default=None, help="YYYY-MM, default the current month")
     invoice = commands.add_parser("invoice", help="markdown table of work hours per project in quarter hours")
