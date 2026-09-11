@@ -19,6 +19,12 @@ from typing import Any, NamedTuple
 
 Event = dict[str, Any]
 VERSION = "master"
+DESCRIPTION = "Passive work-hours ledger for one Linux desktop."
+REPO_URL = "https://github.com/sripwoud/tagwerk"
+EXAMPLES = """examples:
+  tagwerk day                 hours per kind/project for the local day
+  tagwerk invoice --ago 1     last month's invoice table
+"""
 REPOLL_SEC = 60
 BAR_WIDTH = 24
 DAY_SCALE_H = 12
@@ -540,7 +546,16 @@ def cmd_month(config: Config, first: date) -> None:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="tagwerk", description="Passive work-hours ledger for one Linux desktop.")
+    brief = f"{DESCRIPTION}\n\n{EXAMPLES}"
+    if not argv:
+        print(f"{brief}\ntagwerk --help lists every command; docs at {REPO_URL}")
+        return 0
+    parser = argparse.ArgumentParser(
+        prog="tagwerk",
+        description=brief,
+        epilog=f"issues: {REPO_URL}/issues",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     parser.add_argument("--config", type=Path, metavar="PATH", help="config file; overrides TAGWERK_CONFIG")
     parser.add_argument("--data-dir", type=Path, metavar="PATH", help="ledger directory; overrides TAGWERK_DATA_DIR")
