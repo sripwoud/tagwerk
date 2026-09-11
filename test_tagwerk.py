@@ -328,6 +328,18 @@ def test_data_dir_env_overrides_config(
     assert len(list(elsewhere.glob("*.jsonl"))) == 1
 
 
+def test_data_dir_flag_overrides_the_env(
+    data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    env = tmp_path / "env"
+    flagged = tmp_path / "flagged"
+    monkeypatch.setenv("TAGWERK_DATA_DIR", str(env))
+    run(capsys, "--data-dir", str(flagged), "fix", "09:00", "10:00", "assets")
+    assert not data_dir.exists()
+    assert not env.exists()
+    assert len(list(flagged.glob("*.jsonl"))) == 1
+
+
 def test_data_dir_defaults_under_home(
     home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -361,6 +373,26 @@ def test_config_defaults_to_xdg_config_home(
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / "xdg"))
     run(capsys, "fix", "09:00", "10:00", "assets")
     assert run(capsys, "today") == [["work/assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
+
+
+def test_config_flag_overrides_the_env(
+    home: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = home / "flagged.toml"
+    config.write_text(f'data_dir = "{home}/data"\n')
+    monkeypatch.setenv("TAGWERK_CONFIG", str(home / "nope.toml"))
+    run(capsys, "--config", str(config), "fix", "09:00", "10:00", "assets")
+    assert run(capsys, "--config", str(config), "today") == [
+        ["work/assets", "1:00"],
+        ["work", "1:00"],
+        ["total", "1:00"],
+    ]
+
+
+def test_config_flag_directs_init(home: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    config = home / "elsewhere/config.toml"
+    assert lines(capsys, "--config", str(config), "init") == [f"wrote {config}"]
+    assert config.read_text() == tagwerk.CONFIG_TEMPLATE
 
 
 def test_init_writes_the_template_once_and_it_books_into_the_expanded_home(
