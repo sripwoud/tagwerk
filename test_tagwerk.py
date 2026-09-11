@@ -365,7 +365,10 @@ def test_init_writes_the_template_once_and_it_books_into_the_expanded_home(
     home: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     config = home / ".config/tagwerk/config.toml"
-    assert lines(capsys, "init") == [f"wrote {config}"]
+    assert tagwerk.main(["init"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.splitlines() == [f"wrote {config}"]
     run(capsys, "fix", "09:00", "10:00", "assets")
     assert run(capsys, "today") == [["work/assets", "1:00"], ["work", "1:00"], ["total", "1:00"]]
     assert len(list((home / ".local/share/tagwerk").glob("*.jsonl"))) == 1

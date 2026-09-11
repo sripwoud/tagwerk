@@ -104,7 +104,7 @@ def cmd_init(path: Path) -> None:
         raise SystemExit(f"config already exists: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(CONFIG_TEMPLATE)
-    print(f"wrote {path}")
+    print(f"wrote {path}", file=sys.stderr)
 
 
 def load_config(path: Path) -> Config:
