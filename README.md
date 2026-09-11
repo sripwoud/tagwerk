@@ -109,6 +109,8 @@ Times are local; `HH:MM` means today.
 | `tagwerk beat SRC [--cwd PATH]`               | an agent signal from `SRC` (`claude` or `pi`); cwd from `--cwd`, else the `cwd` field of JSON on stdin, else the process cwd |
 | `tagwerk idle`, `tagwerk active`              | idle marks, written by hypridle                                                                                              |
 | `tagwerk --version`                           | the git revision the package was built from, or `master` from a checkout (ADR-0007)                                          |
+| `tagwerk --config PATH CMD`                   | read this config; beats `TAGWERK_CONFIG`, which beats `~/.config/tagwerk/config.toml`                                        |
+| `tagwerk --data-dir PATH CMD`                 | read and write this ledger directory; beats `TAGWERK_DATA_DIR`, which beats `data_dir` in the config                         |
 
 ```sh
 tagwerk fix 14:00 15:00 assets
@@ -117,9 +119,10 @@ tagwerk fix 2026-09-08T09:00 2026-09-08T10:00 blog --kind personal
 tagwerk fix 12:00 13:00 lunch --kind off
 tagwerk week -n 1
 tagwerk invoice 2026-08
+tagwerk --config ~/side-gig/tagwerk.toml invoice 2026-08
 ```
 
-`TAGWERK_CONFIG` and `TAGWERK_DATA_DIR` override the config path and the data directory. Reports colour only when both stdout and stderr are terminals; `--no-color`, `NO_COLOR` and `TERM=dumb` each turn it off, and `FORCE_COLOR` overrides all three.
+Both flags go before the subcommand. Reports colour only when both stdout and stderr are terminals; `--no-color`, `NO_COLOR` and `TERM=dumb` each turn it off, and `FORCE_COLOR` overrides all three.
 
 ## Attribution notes
 
@@ -127,7 +130,7 @@ tagwerk invoice 2026-08
 - An agent beat leases its repo for 10 minutes; a focused kitty cwd or a GitHub repo title leases for 1 minute. A leased repo is credited while an unrelated window is focused, such as a browser tab during a long Claude turn. Two leased repos split each minute evenly (ADR-0003).
 - Beats while idle book nothing. An unattended overnight agent adds no hours; credit resumes on the still-valid lease when you return.
 - With no lease the focused window decides. A kitty shell sitting at a root books that kind's `general`; a work-pattern title (Slack, Zoom, Meet, your org) books `work/general`; anything else books `personal/other`.
-- Idle inhibitors are honoured, so a video call with your hands off the keyboard stays present. In exchange an abandoned video also stays present and books `personal/other`; that inflates the chart, never the invoice. If the chart looks inflated, copy `/usr/share/tagwerk/hypridle.conf`, set `ignore_dbus_inhibit = true` in the copy, and point `--config` at it with `systemctl --user edit tagwerk-idle.service`.
+- Idle inhibitors are honoured, so a video call with your hands off the keyboard stays present. In exchange an abandoned video also stays present and books `personal/other`; that inflates the chart, never the invoice. If the chart looks inflated, copy `/usr/share/tagwerk/hypridle.conf`, set `ignore_dbus_inhibit = true` in the copy, and point hypridle's `--config` at it with `systemctl --user edit tagwerk-idle.service`.
 - `work` and `fixed` are both paid: both drive the day and week caps and both land in the `work` subtotal. Only `work` reaches `tagwerk invoice`, so fixed-price hours show up in the burnout check and never on an hourly customer's bill (ADR-0006).
 - A span overrides the sensors for its whole range, no partial merge, and the latest appended span wins on overlap. Nothing in the ledger is ever edited (ADR-0002).
 
