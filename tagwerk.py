@@ -40,13 +40,16 @@ GREYS = (240, 245, 250)
 PALETTE = (166, 36, 176, 61, 142)
 
 
+CATCH_ALLS = ("general", "other")
+
+
 class Bucket(NamedTuple):
     kind: str
     project: str
 
     @property
     def is_repo(self) -> bool:
-        return self.project not in ("general", "other")
+        return self.project not in CATCH_ALLS
 
 
 OTHER = Bucket("personal", "other")
@@ -65,6 +68,7 @@ class Config:
     focus_lease: timedelta
     roots: list[tuple[Path, str]]
     titles: list[TitleRule]
+    renames: dict[str, str]
     poll_sec: float
     kitty_socket: str
     day_cap_h: float
@@ -94,6 +98,9 @@ week_cap_h = 40 # the week footer and month week bars turn red above this
 "~/memories/work" = "work"
 # "~/code/fixed-price-client" = "fixed" # paid, so it counts toward the caps, but never invoiced
 "~/code" = "personal"
+
+[rename] # a retired project name folds into its current one, for all time; the kind never changes
+# "old-repo-name" = "new-repo-name"
 
 [[title]] # first match wins; consulted only when the cwd resolves to nothing
 pattern = 'work-org/(?P<project>[\w.-]+)'
@@ -132,6 +139,17 @@ def load_config(path: Path, data_dir: Path | None) -> Config:
     chosen = data_dir or os.environ.get("TAGWERK_DATA_DIR") or raw.get("data_dir") or default_data_dir()
     roots = [(Path(root).expanduser(), kind) for root, kind in raw.get("roots", {}).items()]
     roots.sort(key=lambda root: len(root[0].parts), reverse=True)
+    renames = raw.get("rename", {})
+    for old, new in renames.items():
+        if old in CATCH_ALLS or new in CATCH_ALLS:
+            raise SystemExit(
+                f"{path}: rename {old!r} = {new!r}: "
+                f"{' and '.join(CATCH_ALLS)} are catch-alls, not repos; only a repo can be renamed"
+            )
+        if new in renames:
+            raise SystemExit(
+                f"{path}: rename {old!r} = {new!r}: {new!r} is itself renamed; point every old name at the current one"
+            )
     return Config(
         data_dir=Path(chosen).expanduser(),
         poll_sec=raw.get("poll_sec", 15),
@@ -141,10 +159,15 @@ def load_config(path: Path, data_dir: Path | None) -> Config:
         focus_lease=timedelta(minutes=raw.get("focus_lease_min", 1)),
         roots=roots,
         titles=[(re.compile(rule["pattern"]), rule["kind"], rule.get("project")) for rule in raw.get("title", [])],
+        renames=renames,
         kitty_socket=raw.get("kitty_socket", "unix:${XDG_RUNTIME_DIR}/omarchy-kitty-{pid}"),
         day_cap_h=raw.get("day_cap_h", 8),
         week_cap_h=raw.get("week_cap_h", 40),
     )
+
+
+def fold(config: Config, bucket: Bucket) -> Bucket:
+    return Bucket(bucket.kind, config.renames.get(bucket.project, bucket.project))
 
 
 def resolve_cwd(config: Config, cwd: str | None) -> Bucket | None:
@@ -155,7 +178,7 @@ def resolve_cwd(config: Config, cwd: str | None) -> Bucket | None:
         if path.is_relative_to(root):
             below = path.relative_to(root).parts
             # ponytail: the project ends at the first dot, so assets.8467 is assets; a dotted repo name needs its own root
-            return Bucket(kind, below[0].split(".")[0] if below else "general")
+            return fold(config, Bucket(kind, below[0].split(".")[0] if below else "general"))
     return None
 
 
@@ -165,7 +188,7 @@ def resolve_title(config: Config, title: str | None) -> Bucket | None:
     for pattern, kind, project in config.titles:
         match = pattern.search(title)
         if match:
-            return Bucket(kind, project or match.group("project"))
+            return fold(config, Bucket(kind, project or match.group("project")))
     return None
 
 
@@ -220,7 +243,7 @@ def attribute(config: Config, events: list[Event], start: datetime, end: datetim
         (
             datetime.fromisoformat(event["start"]),
             datetime.fromisoformat(event["end"]),
-            Bucket(event["kind"], event["project"]),
+            fold(config, Bucket(event["kind"], event["project"])),
         )
         for event in events
         if event["ev"] == "span"
