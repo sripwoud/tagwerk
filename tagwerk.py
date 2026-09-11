@@ -43,6 +43,7 @@ class Bucket(NamedTuple):
 
 
 OTHER = Bucket("personal", "other")
+PAID = ("work", "fixed")  # both count toward the caps; only work reaches the invoice
 TitleRule = tuple[re.Pattern[str], str, str | None]
 
 
@@ -288,11 +289,13 @@ def format_hours(minutes: float) -> str:
 
 
 def ranked(minutes: dict[Bucket, float]) -> list[tuple[Bucket, float]]:
-    return sorted(minutes.items(), key=lambda row: (row[0].kind != "work", -row[1], row[0].project))
+    return sorted(
+        minutes.items(), key=lambda row: (row[0].kind not in PAID, row[0].kind != "work", -row[1], row[0].project)
+    )
 
 
 def work_minutes(minutes: dict[Bucket, float]) -> float:
-    return sum(credited for bucket, credited in minutes.items() if bucket.kind == "work")
+    return sum(credited for bucket, credited in minutes.items() if bucket.kind in PAID)
 
 
 def render_table(minutes: dict[Bucket, float]) -> str:

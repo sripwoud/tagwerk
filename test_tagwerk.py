@@ -409,6 +409,37 @@ def test_invoice_excludes_personal_minutes(data_dir: Path, capsys: pytest.Captur
     ]
 
 
+def test_fixed_minutes_are_paid_in_the_tables_and_absent_from_the_invoice(
+    ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(
+        ledger,
+        hours(T0, 1),
+        hours(T0 + timedelta(hours=1), 2, "auberge", "fixed"),
+        hours(T0 + timedelta(hours=3), 3, "blog", "personal"),
+    )
+    assert table(capsys, "month", "2026-08") == [
+        ["work/assets", "1:00"],
+        ["fixed/auberge", "2:00"],
+        ["personal/blog", "3:00"],
+        ["work", "3:00"],
+        ["total", "6:00"],
+    ]
+    assert lines(capsys, "invoice", "2026-08") == [
+        "| Project | Hours |",
+        "| --- | ---: |",
+        "| assets | 1.00 |",
+        "| **Total** | **1.00** |",
+    ]
+
+
+def test_invoice_for_a_month_of_only_fixed_minutes_prints_a_zero_total(
+    ledger: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(ledger, hours(T0, 3, "auberge", "fixed"))
+    assert lines(capsys, "invoice", "2026-08") == ["| Project | Hours |", "| --- | ---: |", "| **Total** | **0.00** |"]
+
+
 def test_invoice_for_an_empty_month_prints_the_header_and_a_zero_total(
     ledger: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1120,6 +1151,13 @@ def test_week_footer_shows_work_against_the_cap_and_turns_red_above_it(
     seed(ledger, hours(T0 + 11 * timedelta(hours=1), 1, "auberge", "personal"))
     out = lines(capsys, "week", "-n", WEEK)
     assert out[7] == (f"{tagwerk.RED}{footer}{tagwerk.RESET}" if extra_minutes else footer)
+
+
+def test_the_week_footer_counts_fixed_minutes_as_paid(
+    ledger: Path, berlin: None, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seed(ledger, hours(T0, 2), hours(T0 + 2 * timedelta(hours=1), 1, "auberge", "fixed"))
+    assert lines(capsys, "week", "-n", WEEK)[7] == "work 3:00 / 40:00"
 
 
 def test_week_lands_a_span_over_utc_midnight_on_one_local_date(
