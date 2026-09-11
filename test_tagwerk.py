@@ -251,7 +251,7 @@ def test_latest_appended_span_wins_on_overlap(data_dir: Path, capsys: pytest.Cap
     ]
 
 
-def test_a_late_correction_crossing_a_month_wins_over_a_span_appended_earlier(
+def test_a_late_span_crossing_a_month_wins_over_one_appended_earlier(
     data_dir: Path, berlin: None, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run(capsys, "fix", "2026-09-01T02:00", "2026-09-01T05:00", "auberge")
@@ -263,6 +263,13 @@ def test_a_late_correction_crossing_a_month_wins_over_a_span_appended_earlier(
         ["work", "5:00"],
         ["total", "5:00"],
     ]
+
+
+def test_append_refuses_a_span_carrying_no_append_time(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    with pytest.raises(KeyError):
+        tagwerk.append_event(data_dir, {"ev": "span", "start": stamp(T0), "end": stamp(T0 + MINUTE)})
+    assert not data_dir.exists()
 
 
 def test_personal_rows_follow_work_rows_regardless_of_minutes(

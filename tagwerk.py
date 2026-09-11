@@ -170,7 +170,7 @@ def format_utc(moment: datetime, timespec: str = "seconds") -> str:
 
 
 def stamped(event: Event) -> Event:
-    return {"ts": format_utc(datetime.now(UTC), "microseconds"), **event}
+    return {**event, "ts": format_utc(datetime.now(UTC), "microseconds")}
 
 
 def month_file(data_dir: Path, day: date) -> Path:
@@ -178,7 +178,8 @@ def month_file(data_dir: Path, day: date) -> Path:
 
 
 def append_event(data_dir: Path, event: Event) -> None:
-    filed = datetime.fromisoformat(event["start"] if event["ev"] == "span" else event["ts"])
+    appended = datetime.fromisoformat(event["ts"])
+    filed = datetime.fromisoformat(event["start"]) if event["ev"] == "span" else appended
     data_dir.mkdir(parents=True, exist_ok=True)
     with month_file(data_dir, filed).open("a") as ledger:
         ledger.write(json.dumps(event) + "\n")
@@ -432,7 +433,7 @@ def cmd_fix(config: Config, start: datetime, end: datetime, project: str, kind: 
 
 
 def cmd_import_timew(config: Config, work_tag: str, export: Path | None) -> None:
-    # ponytail: EPOCH to now is the whole ledger, one stat per month since 1970 on a command that runs once
+    # ponytail: one stat per month since 1970; a span filed in a future month hides from this guard
     history = read_events(config.data_dir, EPOCH, datetime.now(UTC))
     if any(event["ev"] == "span" and event["src"] == "timew" for event in history):
         raise SystemExit(f"{config.data_dir} already holds timew spans; import-timew runs once")
