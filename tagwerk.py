@@ -43,7 +43,7 @@ class Bucket(NamedTuple):
 
 
 OTHER = Bucket("personal", "other")
-PAID = ("work", "fixed")  # both count toward the caps; only work reaches the invoice
+PAID = ("work", "fixed")
 KINDS = (*PAID, "personal", "off")
 TitleRule = tuple[re.Pattern[str], str, str | None]
 
@@ -305,13 +305,13 @@ def ranked(minutes: dict[Bucket, float]) -> list[tuple[Bucket, float]]:
     )
 
 
-def work_minutes(minutes: dict[Bucket, float]) -> float:
+def paid_minutes(minutes: dict[Bucket, float]) -> float:
     return sum(credited for bucket, credited in minutes.items() if bucket.kind in PAID)
 
 
 def render_table(minutes: dict[Bucket, float]) -> str:
     cells = [(f"{bucket.kind}/{bucket.project}", format_hours(credited)) for bucket, credited in ranked(minutes)]
-    cells.append(("work", format_hours(work_minutes(minutes))))
+    cells.append(("work", format_hours(paid_minutes(minutes))))
     cells.append(("total", format_hours(sum(minutes.values()))))
     name_width = max(len(name) for name, _ in cells)
     hours_width = max(len(hours) for _, hours in cells)
@@ -502,9 +502,9 @@ def cmd_week(config: Config, weeks_back: int) -> None:
         bar_line(f"{day:%a %d}", days.get(day, {}), DAY_SCALE_H, config.day_cap_h, weekend=day.weekday() >= 5)
         for day in days_between(monday, monday + timedelta(days=7))
     ]
-    work = work_minutes(merge(days.values()))
-    footer = f"work {format_hours(work)} / {format_hours(config.week_cap_h * 60)}"
-    out.append(paint(footer, RED) if work > config.week_cap_h * 60 else footer)
+    paid = paid_minutes(merge(days.values()))
+    footer = f"work {format_hours(paid)} / {format_hours(config.week_cap_h * 60)}"
+    out.append(paint(footer, RED) if paid > config.week_cap_h * 60 else footer)
     print("\n".join(out))
 
 
