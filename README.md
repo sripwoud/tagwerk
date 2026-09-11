@@ -99,6 +99,7 @@ Times are local; `HH:MM` means today.
 | `tagwerk focus [--once]`                            | the poller; `--once` writes one poll and exits                                                                               |
 | `tagwerk beat SRC [--cwd PATH]`                     | an agent signal from `SRC` (`claude` or `pi`); cwd from `--cwd`, else the `cwd` field of JSON on stdin, else the process cwd |
 | `tagwerk idle`, `tagwerk active`                    | idle marks, written by hypridle                                                                                              |
+| `tagwerk --version`                                 | the git revision the package was built from, or `master` from a checkout (ADR-0007)                                          |
 
 ```sh
 tagwerk fix 14:00 15:00 assets

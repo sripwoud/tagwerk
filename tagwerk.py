@@ -18,6 +18,7 @@ from time import monotonic, sleep
 from typing import Any, NamedTuple
 
 Event = dict[str, Any]
+VERSION = "master"
 REPOLL_SEC = 60
 BAR_WIDTH = 24
 DAY_SCALE_H = 12
@@ -506,6 +507,7 @@ def cmd_month(config: Config, first: date) -> None:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="tagwerk", description="Passive work-hours ledger for one Linux desktop.")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="write the commented config template; refuses to overwrite an existing one")
     fix = commands.add_parser("fix", help="book a span by hand; it overrides the sensors for its range")
